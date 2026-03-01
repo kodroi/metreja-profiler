@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed
+
+- Plugin is now the sole source of truth (removed embedded copy from Metreja repo)
+
 ### Added
 
 - Initial plugin release with metreja-profiler skill
