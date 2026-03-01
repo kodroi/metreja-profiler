@@ -1,4 +1,4 @@
-mode: ContinuousDeployment
+mode: ContinuousDelivery
 next-version: 0.1.0
 
 major-version-bump-message: '\+semver:\s?(breaking|major)'
@@ -9,18 +9,18 @@ no-bump-message: '\+semver:\s?(none|skip)'
 branches:
   main:
     regex: ^main$
-    mode: ContinuousDeployment
-    tag: ''
+    mode: ContinuousDelivery
+    label: ''
     increment: Patch
     prevent-increment-of-merged-branch-version: true
     is-release-branch: true
   feature:
     regex: ^features?[/-]
-    mode: ContinuousDeployment
-    tag: alpha
+    mode: ContinuousDelivery
+    label: alpha
     increment: Inherit
   pull-request:
     regex: ^(pull|pull\-requests|pr)[/-]
-    mode: ContinuousDeployment
-    tag: PullRequest
+    mode: ContinuousDelivery
+    label: PullRequest
     increment: Inherit
