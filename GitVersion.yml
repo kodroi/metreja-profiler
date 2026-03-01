@@ -1,0 +1,26 @@
+mode: ContinuousDeployment
+next-version: 0.1.0
+
+major-version-bump-message: '\+semver:\s?(breaking|major)'
+minor-version-bump-message: '\+semver:\s?(feature|minor)'
+patch-version-bump-message: '\+semver:\s?(fix|patch)'
+no-bump-message: '\+semver:\s?(none|skip)'
+
+branches:
+  main:
+    regex: ^main$
+    mode: ContinuousDeployment
+    tag: ''
+    increment: Patch
+    prevent-increment-of-merged-branch-version: true
+    is-release-branch: true
+  feature:
+    regex: ^features?[/-]
+    mode: ContinuousDeployment
+    tag: alpha
+    increment: Inherit
+  pull-request:
+    regex: ^(pull|pull\-requests|pr)[/-]
+    mode: ContinuousDeployment
+    tag: PullRequest
+    increment: Inherit

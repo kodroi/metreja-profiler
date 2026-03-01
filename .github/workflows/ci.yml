@@ -1,0 +1,162 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  changes:
+    name: Detect changes
+    runs-on: ubuntu-latest
+    outputs:
+      should_version: ${{ steps.check.outputs.should_version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Check for version-worthy changes
+        id: check
+        run: |
+          # Check commit message for +semver:
+          COMMIT_MSG=$(git log -1 --pretty=%B)
+          if echo "$COMMIT_MSG" | grep -qiE '\+semver:\s*(major|minor|patch|breaking|feature|fix)'; then
+            echo "should_version=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Check if version-worthy files changed
+          CHANGED=$(git diff --name-only HEAD~1 HEAD 2>/dev/null || git diff --name-only HEAD)
+          if echo "$CHANGED" | grep -qE '^(skills/|\.claude-plugin/|GitVersion\.yml)'; then
+            echo "should_version=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "should_version=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  validate:
+    name: Validate plugin
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate plugin.json
+        run: python3 -c "import json; json.load(open('.claude-plugin/plugin.json'))"
+
+      - name: Validate SKILL.md exists
+        run: test -f skills/metreja-profiler/SKILL.md
+
+      - name: Validate ndjson-reference.md exists
+        run: test -f skills/metreja-profiler/ndjson-reference.md
+
+      - name: Validate SKILL.md has frontmatter
+        run: head -1 skills/metreja-profiler/SKILL.md | grep -q '^---'
+
+  version:
+    name: Compute version
+    needs: [changes, validate]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push' && needs.changes.outputs.should_version == 'true'
+    runs-on: ubuntu-latest
+    outputs:
+      semver: ${{ steps.gitversion.outputs.semVer }}
+      major: ${{ steps.gitversion.outputs.major }}
+      minor: ${{ steps.gitversion.outputs.minor }}
+      patch: ${{ steps.gitversion.outputs.patch }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install GitVersion
+        uses: gittools/actions/gitversion/setup@v3.1.1
+        with:
+          versionSpec: '6.x'
+
+      - name: Determine version
+        id: gitversion
+        uses: gittools/actions/gitversion/execute@v3.1.1
+
+      - name: Print version
+        run: echo "SemVer=${{ steps.gitversion.outputs.semVer }}"
+
+  tag:
+    name: Tag release
+    needs: [version]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Update plugin.json version
+        run: |
+          python3 -c "
+          import json
+          with open('.claude-plugin/plugin.json', 'r+') as f:
+              data = json.load(f)
+              data['version'] = '${{ needs.version.outputs.semver }}'
+              f.seek(0)
+              json.dump(data, f, indent=2)
+              f.write('\n')
+              f.truncate()
+          "
+
+      - name: Update CHANGELOG.md
+        run: |
+          DATE=$(date +%Y-%m-%d)
+          VERSION="${{ needs.version.outputs.semver }}"
+          sed -i "s/^## Unreleased$/## Unreleased\n\n## [$VERSION] - $DATE/" CHANGELOG.md
+
+      - name: Commit and tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add .claude-plugin/plugin.json CHANGELOG.md
+          git commit -m "chore: release v${{ needs.version.outputs.semver }}" || exit 0
+          git tag "v${{ needs.version.outputs.semver }}"
+          git push origin main --tags
+
+  update-marketplace:
+    name: Update marketplace
+    needs: [version, tag]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout marketplace repo
+        uses: actions/checkout@v4
+        with:
+          repository: kodroi/metreja-profiler-marketplace
+          token: ${{ secrets.MARKETPLACE_TOKEN }}
+          path: marketplace
+
+      - name: Update marketplace version
+        run: |
+          cd marketplace
+          python3 -c "
+          import json
+          with open('.claude-plugin/marketplace.json', 'r+') as f:
+              data = json.load(f)
+              for plugin in data['plugins']:
+                  if plugin['name'] == 'metreja-profiler':
+                      plugin['version'] = '${{ needs.version.outputs.semver }}'
+              f.seek(0)
+              json.dump(data, f, indent=2)
+              f.write('\n')
+              f.truncate()
+          "
+
+      - name: Commit and push marketplace update
+        run: |
+          cd marketplace
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add .claude-plugin/marketplace.json
+          git diff --cached --quiet && exit 0
+          git commit -m "chore: bump metreja-profiler to v${{ needs.version.outputs.semver }}"
+          git push
