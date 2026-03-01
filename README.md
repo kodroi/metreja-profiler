@@ -5,7 +5,7 @@ A [Claude Code](https://docs.anthropic.com/en/docs/claude-code) plugin for profi
 ## Requirements
 
 - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) CLI
-- [Metreja](https://www.nuget.org/packages/Metreja) .NET global tool:
+- [Metreja](https://www.nuget.org/packages/Metreja.Tool) .NET global tool:
   ```bash
   dotnet tool install -g Metreja
   ```
