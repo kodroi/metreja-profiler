@@ -53,11 +53,15 @@ dotnet tool install -g Metreja
 
 | Use Case | Include Filters | Exclude Filters | max-events | track-memory |
 |----------|----------------|-----------------|------------|--------------|
-| Broad performance scan | `--assembly "AppName"` | `System.*`, `Microsoft.*` | 50000 | false |
-| Focused method perf | `--assembly "AppName" --class "ClassName"` | `System.*`, `Microsoft.*` | 50000 | false |
-| Debug specific flow | `--assembly "AppName" --namespace "Ns"` | (none) | 100000 | false |
-| Debug exception | `--assembly "AppName"` | (none) | 100000 | false |
-| Memory / GC analysis | `--assembly "AppName"` | `System.*`, `Microsoft.*` | 50000 | **true** |
+| Broad performance scan | `--assembly "AppName"` | (defaults: `System.*`, `Microsoft.*`) | 50000 | false |
+| Focused class perf | `--class "ClassName"` | (defaults) | 50000 | false |
+| Debug specific flow | `--namespace "Ns"` | clear defaults if needed | 100000 | false |
+| Debug exception | `--assembly "AppName"` | clear defaults if needed | 100000 | false |
+| Memory / GC analysis | `--assembly "AppName"` | (defaults) | 50000 | **true** |
+
+**Filter rules** target a single level — each `add include`/`add exclude` call takes exactly one of `--assembly`, `--namespace`, `--class`, or `--method` (mutually exclusive). Multiple patterns can be passed to the same option (e.g., `--assembly "A" "B"`).
+
+**Default excludes:** New sessions automatically exclude `System.*` and `Microsoft.*` assemblies. Use `metreja clear-filters -s ID --excludes` to remove them if needed.
 
 **Filter patterns** support `*` as wildcard (e.g., `System.*` matches `System.IO`, `System.Linq`, etc.).
 
@@ -67,14 +71,14 @@ Run these commands sequentially. Each depends on the session ID from step 1.
 
 ```bash
 # 1. Create session — capture the printed session ID
+#    (automatically adds default excludes: System.*, Microsoft.*)
 SESSION=$(metreja init --scenario "perf-investigation")
 
 # 2. Add include filter (assembly name from Phase 1)
 metreja add include -s $SESSION --assembly "MyApp"
 
-# 3. Add exclude filters (for perf use cases)
-metreja add exclude -s $SESSION --assembly "System.*"
-metreja add exclude -s $SESSION --assembly "Microsoft.*"
+# 3. (Optional) Add extra exclude filters — defaults already cover System.*/Microsoft.*
+# metreja add exclude -s $SESSION --assembly "SomeOtherLib.*"
 
 # 4. Set output path (use tokens for unique filenames)
 metreja set output -s $SESSION "trace-{sessionId}-{pid}.ndjson"
@@ -209,10 +213,9 @@ Use this to identify: frequent gen2 collections (memory pressure), high allocati
 
 ```bash
 # Create a new drill-down session with narrower scope
+# (default excludes System.*/Microsoft.* are added automatically)
 DRILL_SESSION=$(metreja init --scenario "drill-down-1")
 metreja add include -s $DRILL_SESSION --class "SlowClass"
-metreja add exclude -s $DRILL_SESSION --assembly "System.*"
-metreja add exclude -s $DRILL_SESSION --assembly "Microsoft.*"
 metreja set output -s $DRILL_SESSION "trace-drill-{sessionId}-{pid}.ndjson"
 metreja set compute-deltas -s $DRILL_SESSION true
 metreja set max-events -s $DRILL_SESSION 50000
@@ -234,7 +237,7 @@ metreja calltree trace-drill-*.ndjson --method "SuspiciousMethod"
 | 1 (broad) | `--assembly "AppName"` | Initial discovery |
 | 2 | `--namespace "Slow.Namespace"` | Hotspot points to a namespace |
 | 3 | `--class "SlowClass"` | Hotspot points to a specific class |
-| 4 | `--class "SlowClass" --method "SlowMethod"` | Need internal method-level detail |
+| 4 | `--method "SlowMethod"` | Need specific method-level detail |
 
 **Keep drilling until:** the leaf method is identified (no further children), or the bottleneck is in external code (framework/DB/IO) where profiling won't help.
 
@@ -271,8 +274,8 @@ for l in sys.stdin:
 | Command | Syntax | Purpose |
 |---------|--------|---------|
 | `init` | `metreja init [--scenario NAME]` | Create session, prints session ID |
-| `add include` | `metreja add include -s ID [--assembly P] [--namespace P] [--class P] [--method P]` | Add include filter |
-| `add exclude` | `metreja add exclude -s ID [--assembly P] [--namespace P] [--class P] [--method P]` | Add exclude filter |
+| `add include` | `metreja add include -s ID --assembly\|--namespace\|--class\|--method P [P2...]` | Add include filter (one level per call) |
+| `add exclude` | `metreja add exclude -s ID --assembly\|--namespace\|--class\|--method P [P2...]` | Add exclude filter (one level per call) |
 | `set output` | `metreja set output -s ID PATH` | Set output path (supports `{sessionId}`, `{pid}` tokens) |
 | `set compute-deltas` | `metreja set compute-deltas -s ID true\|false` | Enable/disable delta timing |
 | `set max-events` | `metreja set max-events -s ID N` | Cap event count (0 = unlimited) |

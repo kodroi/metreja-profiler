@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed
+
+- FilterRule now uses single-level model (`--assembly`/`--namespace`/`--class`/`--method` are mutually exclusive per call)
+- New sessions automatically exclude `System.*` and `Microsoft.*` assemblies (default excludes)
+- Updated drill-down examples and CLI Quick Reference for new filter syntax
+
 ## [0.1.2] - 2026-03-02
 
 ### Changed
