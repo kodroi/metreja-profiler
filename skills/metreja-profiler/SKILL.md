@@ -98,35 +98,37 @@ Validation checks: `sessionId` exists, `output.path` set, at least one include r
 
 ### Strategy A: Short-lived apps (console apps, tests)
 
-Generate the env script then source it and run inline:
+Build the project and run with profiling — the `run` command injects all profiler env vars automatically:
 
 ```bash
-# Generate env vars as batch script (DLL path is auto-discovered)
-metreja generate-env -s $SESSION --format batch > env.bat
+# Build the project
+dotnet build <target-project-path> -c Debug
 
-# Source and run:
-cmd //c "env.bat && dotnet run --project <target-project-path> -c Release"
+# Run with profiling (waits for exit)
+metreja run -s $SESSION "<path-to-built-exe>"
 ```
 
-The session config JSON is at `.metreja/sessions/<SESSION>.json` relative to the working directory.
+### Strategy B: Long-running / GUI apps (WPF, web servers, services)
 
-### Strategy B: Long-running apps (web servers, services)
+For apps that don't exit on their own, use `--detach` to launch and return immediately:
 
-For apps that don't exit on their own:
+```bash
+# Build the project
+dotnet build <target-project-path> -c Debug
 
-1. Generate the env script: `metreja generate-env -s $SESSION --format powershell`
-2. Print the env vars to the user with instructions to paste into their terminal
-3. Tell the user to run their app manually
-4. Wait for the user to signal that the app has been exercised and stopped
-5. Proceed to Phase 4 with the generated NDJSON file
+# Launch with profiling (returns immediately)
+metreja run -s $SESSION --detach "<path-to-built-exe>"
+# Tell user to exercise the app and close it when done
+# Wait for user signal, then proceed to Phase 4
+```
 
-### Required Environment Variables
+### Required Environment Variables (set automatically by `metreja run`)
 
 | Variable | Value |
 |----------|-------|
 | `CORECLR_ENABLE_PROFILING` | `1` |
 | `CORECLR_PROFILER` | `{7C8F944B-4810-4999-BF98-6A3361185FC2}` |
-| `CORECLR_PROFILER_PATH` | Absolute path to `Metreja.Profiler.dll` (auto-resolved by `generate-env`) |
+| `CORECLR_PROFILER_PATH` | Absolute path to `Metreja.Profiler.dll` (auto-resolved) |
 | `METREJA_CONFIG` | Absolute path to session JSON (`.metreja/sessions/<id>.json`) |
 
 ## Phase 4: Analysis
@@ -216,9 +218,9 @@ metreja set compute-deltas -s $DRILL_SESSION true
 metreja set max-events -s $DRILL_SESSION 50000
 metreja validate -s $DRILL_SESSION
 
-# Re-profile with the narrower session (same Phase 3 workflow)
-metreja generate-env -s $DRILL_SESSION --format batch > env.bat
-cmd //c "env.bat && dotnet run --project <target-project-path> -c Release"
+# Build and re-profile with the narrower session (same Phase 3 workflow)
+dotnet build <target-project-path> -c Debug
+metreja run -s $DRILL_SESSION "<path-to-built-exe>"
 
 # Analyze the drill-down trace
 metreja hotspots trace-drill-*.ndjson --top 20
@@ -278,7 +280,8 @@ for l in sys.stdin:
 | `set track-memory` | `metreja set track-memory -s ID true\|false` | Enable/disable GC and allocation tracking |
 | `set mode` | `metreja set mode -s ID MODE` | Set instrumentation mode (`elt3`) |
 | `validate` | `metreja validate -s ID` | Validate session config |
-| `generate-env` | `metreja generate-env -s ID [--dll-path P] [--format batch\|powershell]` | Generate env var script (DLL path auto-detected) |
+| `run` | `metreja run -s ID [--detach] EXE [ARGS...]` | Launch exe with profiler env vars attached |
+| `generate-env` | `metreja generate-env -s ID [--dll-path P] [--format batch\|powershell]` | Generate env var script for manual use |
 | `analyze-diff` | `metreja analyze-diff BASE COMPARE` | Compare two NDJSON traces |
 | `hotspots` | `metreja hotspots FILE [--top N] [--min-ms N] [--sort self\|inclusive\|calls\|allocs] [--filter PAT]...` | Per-method timing hotspots with self time and allocs |
 | `calltree` | `metreja calltree FILE --method PAT [--tid N] [--occurrence N]` | Call tree for a specific method invocation |
@@ -288,7 +291,7 @@ for l in sys.stdin:
 
 ## Common Pitfalls
 
-- **Shell state doesn't persist between Bash tool calls.** Always set env vars inline on the same command line or use `generate-env` to create a batch script that gets sourced.
+- **Shell state doesn't persist between Bash tool calls.** Use `metreja run` to launch profiled apps — it injects env vars via `ProcessStartInfo` without needing batch scripts. For manual use, `generate-env` can create a sourceable script.
 - **`COR_PRF_ENABLE_FRAME_INFO`** is already set by the DLL in its event mask — no user action needed.
 - **Large traces blow up context.** Always set `max-events` (50k for perf, 100k for debugging). Never read an entire large NDJSON file — use grep/python to extract relevant events.
 - **Async methods** appear as `<MethodName>d__N` state machine classes. The profiler resolves these: the `m` field shows the original method name, and `async` is `true`. Continuations may appear on different thread IDs than the initial call.

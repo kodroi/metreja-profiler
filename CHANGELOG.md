@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed
+
+- Phase 3 execution strategies now use `metreja run` command instead of manual `generate-env` + batch scripts
+
 ## [0.1.1] - 2026-03-01
 
 ## [0.1.0] - 2026-03-01
