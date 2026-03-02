@@ -1,12 +1,12 @@
 # Metreja Profiler
 
-**Find .NET performance bottlenecks without leaving Claude Code.** Profile method execution, trace call paths, analyze GC pressure, and compare before/after — all through natural conversation.
+**A .NET profiler plugin for Claude Code — built for AI-driven performance and memory analysis.** Tell Claude "find why this is slow" or "where am I wasting memory?" and it profiles, analyzes, and gives you an answer backed by real data. No detours, no GUIs.
 
-> "Profile this app and find why the API is slow" — that's all it takes. The skill handles session setup, profiling, and analysis automatically.
+> "This endpoint takes 3 seconds, find out why" / "Check if the import service is leaking memory" — Claude handles session setup, profiling, and analysis automatically. Both slowness and wastefulness, one conversation.
 
 ## What You Get
 
-Install the plugin and ask Claude about performance. The skill activates automatically and walks through a structured profiling workflow:
+Install the plugin and Claude profiles as part of fixing the problem — not as a separate step. The skill activates automatically, runs the full measure-analyze-fix loop, and gives you actionable results:
 
 ```
 You: "This endpoint takes 3 seconds, find out why"
@@ -60,15 +60,15 @@ dotnet tool install -g Metreja
 
 ## Capabilities
 
-**Performance profiling** — Find slow methods with self-time analysis that distinguishes orchestrators from actual bottlenecks.
+**Finds the real bottleneck** — Self-time analysis pinpoints the method that's actually slow, not the one that calls it.
 
-**Memory analysis** — GC summary by generation, pause times, and per-type allocation hotspots to identify memory pressure.
+**Catches wastefulness** — Excessive allocations, GC thrashing, memory pressure. See which types allocate the most and which methods trigger gen2 collections.
 
-**Execution tracing** — Follow call paths through your code, including async state machines resolved to their original method names.
+**Traces call paths** — Follow execution through your code, including async state machines resolved to their original method names.
 
-**Before/after comparison** — Re-profile after a fix and diff the traces to verify improvements.
+**Proves the fix worked** — Diff two traces. See the numbers. No guessing whether your change helped.
 
-**Iterative drill-down** — Start broad, then narrow filters to a specific namespace, class, or method for deeper analysis.
+**Drills down iteratively** — Start broad, then narrow to a specific namespace, class, or method. The agent handles the iterative investigation.
 
 ## How It Works
 
