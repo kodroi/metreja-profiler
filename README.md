@@ -45,17 +45,9 @@ Claude: Setting up profiling session...
 dotnet tool install -g Metreja
 ```
 
-### Via Marketplace (recommended)
-
 ```
 /plugin marketplace add kodroi/metreja-profiler-marketplace
 /plugin install metreja-profiler@metreja-profiler-marketplace
-```
-
-### Direct Install
-
-```
-/plugin install kodroi/metreja-profiler
 ```
 
 ## Capabilities
