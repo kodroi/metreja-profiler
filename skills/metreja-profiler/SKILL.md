@@ -49,19 +49,26 @@ dotnet tool install -g Metreja
 ## Phase 1: Target Analysis & Filter Design
 
 1. **Identify the target project** — find the `.csproj` file and extract the assembly name (usually `<AssemblyName>` or the project file name without extension)
-2. **Choose a filter strategy** based on the use case:
 
-| Use Case | Include Filters | Exclude Filters | max-events | track-memory |
-|----------|----------------|-----------------|------------|--------------|
-| Broad performance scan | `--assembly "AppName"` | (defaults: `System.*`, `Microsoft.*`) | 50000 | false |
-| Focused class perf | `--class "ClassName"` | (defaults) | 50000 | false |
-| Debug specific flow | `--namespace "Ns"` | clear defaults if needed | 100000 | false |
-| Debug exception | `--assembly "AppName"` | clear defaults if needed | 100000 | false |
-| Memory / GC analysis | `--assembly "AppName"` | (defaults) | 50000 | **true** |
+2. **Understand event types** — Metreja uses an `events` config field to control what data the profiler emits:
 
-**Filter rules** target a single level — each `add include`/`add exclude` call takes exactly one of `--assembly`, `--namespace`, `--class`, or `--method` (mutually exclusive). Multiple patterns can be passed to the same option (e.g., `--assembly "A" "B"`).
+| Category | Event Types | Description | maxEvents behavior |
+|----------|-------------|-------------|--------------------|
+| Aggregated | `method_stats`, `exception_stats` | In-profiler summaries emitted at shutdown | Bypass maxEvents cap |
+| Per-call | `enter`, `leave`, `exception` | One event per method call/exit/throw | Count against maxEvents |
+| Memory | `gc_start`, `gc_end`, `alloc_by_class` | GC and allocation tracking | `gc_*` bypass cap; `alloc_by_class` counts |
 
-**Default excludes:** New sessions automatically exclude `System.*` and `Microsoft.*` assemblies. Use `metreja clear-filters -s ID --excludes` to remove them if needed.
+**Two-phase approach:** Start with `method_stats` for lightweight discovery (low output, same ELT3 hooks), then use `enter`/`leave` for targeted tracing on identified hotspots.
+
+3. **Choose a filter and events strategy** based on the use case:
+
+| Use Case | Include Filters | Exclude Filters | Events | max-events |
+|----------|----------------|-----------------|--------|------------|
+| Broad performance discovery | `--assembly "AppName"` | `System.*`, `Microsoft.*` | `method_stats exception_stats` | not needed (stats bypass cap) |
+| Focused method perf | `--assembly "AppName" --class "ClassName"` | `System.*`, `Microsoft.*` | `enter leave exception` | 50000 |
+| Debug specific flow | `--assembly "AppName" --namespace "Ns"` | (none) | `enter leave exception` | 100000 |
+| Debug exception | `--assembly "AppName"` | (none) | `enter leave exception exception_stats` | 100000 |
+| Memory / GC analysis | `--assembly "AppName"` | `System.*`, `Microsoft.*` | `gc_start gc_end alloc_by_class` | 50000 |
 
 **Filter patterns** support `*` as wildcard (e.g., `System.*` matches `System.IO`, `System.Linq`, etc.).
 
@@ -69,31 +76,59 @@ dotnet tool install -g Metreja
 
 Run these commands sequentially. Each depends on the session ID from step 1.
 
+### Discovery session (recommended first step)
+
 ```bash
 # 1. Create session — capture the printed session ID
-#    (automatically adds default excludes: System.*, Microsoft.*)
-SESSION=$(metreja init --scenario "perf-investigation")
+SESSION=$(metreja init --scenario "discovery")
 
 # 2. Add include filter (assembly name from Phase 1)
 metreja add include -s $SESSION --assembly "MyApp"
 
-# 3. (Optional) Add extra exclude filters — defaults already cover System.*/Microsoft.*
-# metreja add exclude -s $SESSION --assembly "SomeOtherLib.*"
+# 3. Add exclude filters
+metreja add exclude -s $SESSION --assembly "System.*"
+metreja add exclude -s $SESSION --assembly "Microsoft.*"
 
 # 4. Set output path (use tokens for unique filenames)
-metreja set output -s $SESSION "trace-{sessionId}-{pid}.ndjson"
+metreja set output -s $SESSION "discovery-{sessionId}-{pid}.ndjson"
 
 # 5. Enable delta timing (required for performance analysis)
 metreja set compute-deltas -s $SESSION true
 
-# 6. Set max events cap
-metreja set max-events -s $SESSION 50000
+# 6. Set events — aggregated stats for lightweight discovery
+metreja set events -s $SESSION method_stats exception_stats
 
-# 7. Enable memory tracking (for GC/allocation analysis)
-metreja set track-memory -s $SESSION true
-
-# 8. Validate the session configuration
+# 7. Validate the session configuration
 metreja validate -s $SESSION
+```
+
+### Targeted tracing session (after discovery identifies hotspots)
+
+```bash
+# 1. Create session with narrowed scope
+TRACE_SESSION=$(metreja init --scenario "targeted-trace")
+
+# 2. Add narrowed include filter (class/method from discovery)
+metreja add include -s $TRACE_SESSION --class "SlowClass"
+
+# 3. Add exclude filters
+metreja add exclude -s $TRACE_SESSION --assembly "System.*"
+metreja add exclude -s $TRACE_SESSION --assembly "Microsoft.*"
+
+# 4. Set output path
+metreja set output -s $TRACE_SESSION "trace-{sessionId}-{pid}.ndjson"
+
+# 5. Enable delta timing
+metreja set compute-deltas -s $TRACE_SESSION true
+
+# 6. Set events — per-call tracing for detailed analysis
+metreja set events -s $TRACE_SESSION enter leave exception
+
+# 7. Set max events cap (per-call events count against this)
+metreja set max-events -s $TRACE_SESSION 50000
+
+# 8. Validate
+metreja validate -s $TRACE_SESSION
 ```
 
 Validation checks: `sessionId` exists, `output.path` set, at least one include rule, output directory writable. Fix any reported errors before proceeding.
@@ -102,44 +137,83 @@ Validation checks: `sessionId` exists, `output.path` set, at least one include r
 
 ### Strategy A: Short-lived apps (console apps, tests)
 
-Build the project and run with profiling — the `run` command injects all profiler env vars automatically:
+Generate the env script then source it and run inline:
 
 ```bash
-# Build the project
-dotnet build <target-project-path> -c Debug
+# Generate env vars as batch script (DLL path is auto-discovered)
+metreja generate-env -s $SESSION --format batch > env.bat
 
-# Run with profiling (waits for exit)
-metreja run -s $SESSION "<path-to-built-exe>"
+# Source and run:
+cmd //c "env.bat && dotnet run --project <target-project-path> -c Release"
 ```
 
-### Strategy B: Long-running / GUI apps (WPF, web servers, services)
+The session config JSON is at `.metreja/sessions/<SESSION>.json` relative to the working directory.
 
-For apps that don't exit on their own, use `--detach` to launch and return immediately:
+### Strategy B: Long-running apps (web servers, services)
 
-```bash
-# Build the project
-dotnet build <target-project-path> -c Debug
+For apps that don't exit on their own:
 
-# Launch with profiling (returns immediately)
-metreja run -s $SESSION --detach "<path-to-built-exe>"
-# Tell user to exercise the app and close it when done
-# Wait for user signal, then proceed to Phase 4
-```
+1. Generate the env script: `metreja generate-env -s $SESSION --format powershell`
+2. Print the env vars to the user with instructions to paste into their terminal
+3. Tell the user to run their app manually
+4. Wait for the user to signal that the app has been exercised and stopped
+5. Proceed to Phase 4 with the generated NDJSON file
 
-### Required Environment Variables (set automatically by `metreja run`)
+### Required Environment Variables
 
 | Variable | Value |
 |----------|-------|
 | `CORECLR_ENABLE_PROFILING` | `1` |
 | `CORECLR_PROFILER` | `{7C8F944B-4810-4999-BF98-6A3361185FC2}` |
-| `CORECLR_PROFILER_PATH` | Absolute path to `Metreja.Profiler.dll` (auto-resolved) |
+| `CORECLR_PROFILER_PATH` | Absolute path to `Metreja.Profiler.dll` (auto-resolved by `generate-env`) |
 | `METREJA_CONFIG` | Absolute path to session JSON (`.metreja/sessions/<id>.json`) |
 
 ## Phase 4: Analysis
 
-Use the built-in analysis commands — they handle streaming, self-time calculation, and formatting. Reference [ndjson-reference.md](ndjson-reference.md) for event schemas.
+Use the built-in analysis commands and grep/python for discovery data. Reference [ndjson-reference.md](ndjson-reference.md) for event schemas.
 
-### Step 1: Hotspots overview
+### Step 1: Interpret discovery results (from `method_stats`/`exception_stats` sessions)
+
+Discovery sessions emit aggregated stats — read them with grep/python since `metreja hotspots` only reads `enter`/`leave` events.
+
+```bash
+# Top methods by total self time (where CPU time is actually spent)
+grep '"event":"method_stats"' discovery-*.ndjson | python3 -c "
+import sys, json
+methods = [json.loads(l) for l in sys.stdin]
+methods.sort(key=lambda m: m['totalSelfNs'], reverse=True)
+print(f\"{'Method':60s} {'Calls':>8s} {'Self(ms)':>10s} {'Incl(ms)':>10s} {'MaxSelf(ms)':>12s}\")
+print('-' * 102)
+for m in methods[:20]:
+    name = f\"{m['ns']}.{m['cls']}.{m['m']}\"
+    print(f\"{name:60s} {m['callCount']:8d} {m['totalSelfNs']/1e6:10.1f} {m['totalInclusiveNs']/1e6:10.1f} {m['maxSelfNs']/1e6:12.1f}\")
+"
+
+# Top exception hotspots
+grep '"event":"exception_stats"' discovery-*.ndjson | python3 -c "
+import sys, json
+exceptions = [json.loads(l) for l in sys.stdin]
+exceptions.sort(key=lambda e: e['count'], reverse=True)
+for e in exceptions[:10]:
+    print(f\"  {e['count']:6d}x  {e['exType']}  in  {e['ns']}.{e['cls']}.{e['m']}\")
+"
+```
+
+Present the discovery results to the user. Key interpretation:
+- **High self time, low inclusive time** — the method itself is slow (CPU-bound work, I/O wait)
+- **High inclusive time, low self time** — orchestrator calling slow children (drill into children)
+- **High call count with modest per-call time** — death by a thousand cuts (consider caching/batching)
+
+### Step 2: Decide next action
+
+Based on discovery results:
+- **Leaf method is the bottleneck** (high self time) — locate in source code and suggest optimizations directly
+- **Orchestrator method** (high inclusive, low self) — create a targeted tracing session (loop back to Phase 2) with `enter leave exception` events and narrowed class/method filters to see the call tree
+- **Exception hotspot** — create targeted session with `enter leave exception` to capture the call stack leading to the exception
+
+### Step 3: Targeted analysis (from `enter`/`leave` sessions)
+
+These commands work on per-call trace data:
 
 ```bash
 # Top-10 hotspots with self time (shows where time is actually spent)
@@ -151,18 +225,14 @@ metreja hotspots trace.ndjson --top 10 --sort inclusive
 # Sort by call count (most-called methods first)
 metreja hotspots trace.ndjson --top 10 --sort calls
 
-# Sort by allocations (requires track-memory enabled; shows Allocs column)
+# Sort by allocations (requires alloc_by_class events enabled)
 metreja hotspots trace.ndjson --top 10 --sort allocs
 
 # Filter out noise below 1ms
 metreja hotspots trace.ndjson --top 10 --min-ms 1
 ```
 
-Present the hotspot table to the user. Self time distinguishes orchestrators (high inclusive, low self) from actual work (high self).
-
-### Step 2: Drill into slow methods
-
-For each suspicious method from the hotspots, drill deeper:
+Drill into slow methods:
 
 ```bash
 # Call tree: shows what a method does internally (slowest invocation by default)
@@ -178,9 +248,7 @@ metreja calltree trace.ndjson --method "SlowMethod" --tid 54576
 metreja callers trace.ndjson --method "SlowMethod"
 ```
 
-### Step 3: Scope-narrowed analysis
-
-Instead of limiting output, run a tighter-scope analysis with `--filter`:
+Scope-narrowed analysis with `--filter`:
 
 ```bash
 # Focus hotspots on a specific class or namespace
@@ -188,7 +256,7 @@ metreja hotspots trace.ndjson --filter "SlowClass"
 metreja hotspots trace.ndjson --filter "MyApp.Data" --filter "MyApp.Services"
 ```
 
-### Step 4: Memory analysis (when `track-memory` is enabled)
+### Step 4: Memory analysis (when gc/alloc events are enabled)
 
 ```bash
 # GC summary + top-20 allocation-by-class hotspots
@@ -209,35 +277,16 @@ Use this to identify: frequent gen2 collections (memory pressure), high allocati
 
 ### Step 5: Iterative drill-down with new profiling sessions
 
-**When analysis reveals the bottleneck is in a specific class/namespace but you need more detail**, create a new profiling session with tighter filters and re-profile. This captures more events within the area of interest.
-
-```bash
-# Create a new drill-down session with narrower scope
-# (default excludes System.*/Microsoft.* are added automatically)
-DRILL_SESSION=$(metreja init --scenario "drill-down-1")
-metreja add include -s $DRILL_SESSION --class "SlowClass"
-metreja set output -s $DRILL_SESSION "trace-drill-{sessionId}-{pid}.ndjson"
-metreja set compute-deltas -s $DRILL_SESSION true
-metreja set max-events -s $DRILL_SESSION 50000
-metreja validate -s $DRILL_SESSION
-
-# Build and re-profile with the narrower session (same Phase 3 workflow)
-dotnet build <target-project-path> -c Debug
-metreja run -s $DRILL_SESSION "<path-to-built-exe>"
-
-# Analyze the drill-down trace
-metreja hotspots trace-drill-*.ndjson --top 20
-metreja calltree trace-drill-*.ndjson --method "SuspiciousMethod"
-```
+**When analysis reveals the bottleneck is in a specific class/namespace but you need more detail**, create a new profiling session with tighter filters and re-profile.
 
 **Drill-down strategy:**
 
-| Iteration | Filter Level | When to use |
-|-----------|-------------|-------------|
-| 1 (broad) | `--assembly "AppName"` | Initial discovery |
-| 2 | `--namespace "Slow.Namespace"` | Hotspot points to a namespace |
-| 3 | `--class "SlowClass"` | Hotspot points to a specific class |
-| 4 | `--method "SlowMethod"` | Need specific method-level detail |
+| Iteration | Filter Level | Events | When to use |
+|-----------|-------------|--------|-------------|
+| 1 (discovery) | `--assembly "AppName"` | `method_stats exception_stats` | Initial discovery — identify hotspot areas |
+| 2 (targeted) | `--namespace "Slow.Namespace"` | `enter leave exception` | Hotspot points to a namespace |
+| 3 (focused) | `--class "SlowClass"` | `enter leave exception` | Hotspot points to a specific class |
+| 4 (precise) | `--class "SlowClass" --method "SlowMethod"` | `enter leave exception` | Need internal method-level detail |
 
 **Keep drilling until:** the leaf method is identified (no further children), or the bottleneck is in external code (framework/DB/IO) where profiling won't help.
 
@@ -274,17 +323,15 @@ for l in sys.stdin:
 | Command | Syntax | Purpose |
 |---------|--------|---------|
 | `init` | `metreja init [--scenario NAME]` | Create session, prints session ID |
-| `add include` | `metreja add include -s ID --assembly\|--namespace\|--class\|--method P [P2...]` | Add include filter (one level per call) |
-| `add exclude` | `metreja add exclude -s ID --assembly\|--namespace\|--class\|--method P [P2...]` | Add exclude filter (one level per call) |
+| `add include` | `metreja add include -s ID [--assembly P] [--namespace P] [--class P] [--method P]` | Add include filter |
+| `add exclude` | `metreja add exclude -s ID [--assembly P] [--namespace P] [--class P] [--method P]` | Add exclude filter |
 | `set output` | `metreja set output -s ID PATH` | Set output path (supports `{sessionId}`, `{pid}` tokens) |
 | `set compute-deltas` | `metreja set compute-deltas -s ID true\|false` | Enable/disable delta timing |
 | `set max-events` | `metreja set max-events -s ID N` | Cap event count (0 = unlimited) |
 | `set metadata` | `metreja set metadata -s ID [--scenario S]` | Update scenario |
-| `set track-memory` | `metreja set track-memory -s ID true\|false` | Enable/disable GC and allocation tracking |
-| `set mode` | `metreja set mode -s ID MODE` | Set instrumentation mode (`elt3`) |
+| `set events` | `metreja set events -s ID TYPE [TYPE2...]` | Set enabled event types (`enter`, `leave`, `exception`, `method_stats`, `exception_stats`, `gc_start`, `gc_end`, `alloc_by_class`) |
 | `validate` | `metreja validate -s ID` | Validate session config |
-| `run` | `metreja run -s ID [--detach] EXE [ARGS...]` | Launch exe with profiler env vars attached |
-| `generate-env` | `metreja generate-env -s ID [--dll-path P] [--format batch\|powershell]` | Generate env var script for manual use |
+| `generate-env` | `metreja generate-env -s ID [--dll-path P] [--format batch\|powershell]` | Generate env var script (DLL path auto-detected) |
 | `analyze-diff` | `metreja analyze-diff BASE COMPARE` | Compare two NDJSON traces |
 | `hotspots` | `metreja hotspots FILE [--top N] [--min-ms N] [--sort self\|inclusive\|calls\|allocs] [--filter PAT]...` | Per-method timing hotspots with self time and allocs |
 | `calltree` | `metreja calltree FILE --method PAT [--tid N] [--occurrence N]` | Call tree for a specific method invocation |
@@ -294,9 +341,13 @@ for l in sys.stdin:
 
 ## Common Pitfalls
 
-- **Shell state doesn't persist between Bash tool calls.** Use `metreja run` to launch profiled apps — it injects env vars via `ProcessStartInfo` without needing batch scripts. For manual use, `generate-env` can create a sourceable script.
+- **Start with discovery, not per-call tracing.** Use `method_stats` events first to identify hotspot areas with minimal output. Only switch to `enter`/`leave` events for targeted tracing after you know where to look.
+- **Stats events bypass maxEvents.** `method_stats` and `exception_stats` are not subject to the `maxEvents` cap — they are emitted at profiler shutdown regardless. `gc_start`/`gc_end` also bypass the cap. Only `enter`, `leave`, `exception`, and `alloc_by_class` count against it.
+- **`method_stats` still hooks ELT3.** The overhead is in output size, not execution speed — the profiler hooks every enter/leave regardless and aggregates in-process. Discovery sessions produce far fewer NDJSON lines but the profiled app runs at roughly the same speed.
+- **`metreja hotspots` reads `enter`/`leave` events only.** It does not read `method_stats`. Use grep/python to analyze discovery results (see Phase 4, Step 1).
+- **Shell state doesn't persist between Bash tool calls.** Always set env vars inline on the same command line or use `generate-env` to create a batch script that gets sourced.
 - **`COR_PRF_ENABLE_FRAME_INFO`** is already set by the DLL in its event mask — no user action needed.
-- **Large traces blow up context.** Always set `max-events` (50k for perf, 100k for debugging). Never read an entire large NDJSON file — use grep/python to extract relevant events.
+- **Large traces blow up context.** Always set `max-events` for per-call tracing sessions (50k for perf, 100k for debugging). Never read an entire large NDJSON file — use grep/python to extract relevant events.
 - **Async methods** appear as `<MethodName>d__N` state machine classes. The profiler resolves these: the `m` field shows the original method name, and `async` is `true`. Continuations may appear on different thread IDs than the initial call.
 - **Output path must be writable.** The directory in `set output` path must exist or the profiler will fail silently. Create it before running.
 - **Session config location.** Config JSON lives at `.metreja/sessions/<session-id>.json` relative to the working directory where you ran `metreja init`.
