@@ -178,7 +178,7 @@ Use the built-in analysis commands and grep/python for discovery data. Reference
 Discovery sessions emit aggregated stats — read them with grep/python since `metreja hotspots` only reads `enter`/`leave` events.
 
 ```bash
-# Top methods by total self time (where CPU time is actually spent)
+# Top methods by total self-time (where CPU time is actually spent)
 grep '"event":"method_stats"' discovery-*.ndjson | python3 -c "
 import sys, json
 methods = [json.loads(l) for l in sys.stdin]
@@ -208,7 +208,7 @@ Present the discovery results to the user. Key interpretation:
 ### Step 2: Decide next action
 
 Based on discovery results:
-- **Leaf method is the bottleneck** (high self time) — locate in source code and suggest optimizations directly
+- **Leaf method is the bottleneck** (high self-time) — locate in source code and suggest optimizations directly
 - **Orchestrator method** (high inclusive, low self) — create a targeted tracing session (loop back to Phase 2) with `enter leave exception` events and narrowed class/method filters to see the call tree
 - **Exception hotspot** — create targeted session with `enter leave exception` to capture the call stack leading to the exception
 
@@ -217,10 +217,10 @@ Based on discovery results:
 These commands work on per-call trace data:
 
 ```bash
-# Top-10 hotspots with self time (shows where time is actually spent)
+# Top-10 hotspots with self-time (shows where time is actually spent)
 metreja hotspots trace.ndjson --top 10
 
-# Sort by inclusive time (shows total wall-clock per method)
+# Sort by inclusive-time (shows total wall-clock per method)
 metreja hotspots trace.ndjson --top 10 --sort inclusive
 
 # Sort by call count (most-called methods first)
@@ -335,7 +335,7 @@ for l in sys.stdin:
 | `validate` | `metreja validate -s ID` | Validate session config |
 | `generate-env` | `metreja generate-env -s ID [--dll-path P] [--format batch\|powershell]` | Generate env var script (DLL path auto-detected) |
 | `analyze-diff` | `metreja analyze-diff BASE COMPARE` | Compare two NDJSON traces |
-| `hotspots` | `metreja hotspots FILE [--top N] [--min-ms N] [--sort self\|inclusive\|calls\|allocs] [--filter PAT]...` | Per-method timing hotspots with self time and allocs |
+| `hotspots` | `metreja hotspots FILE [--top N] [--min-ms N] [--sort self\|inclusive\|calls\|allocs] [--filter PAT]...` | Per-method timing hotspots with self-time and allocs |
 | `calltree` | `metreja calltree FILE --method PAT [--tid N] [--occurrence N]` | Call tree for a specific method invocation |
 | `callers` | `metreja callers FILE --method PAT [--top N]` | Who calls a specific method, with timing |
 | `memory` | `metreja memory FILE [--top N] [--filter PAT]...` | GC summary and allocation hotspots by class |

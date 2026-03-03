@@ -96,10 +96,10 @@ Emitted at profiler shutdown. One event per unique method. The profiler tracks e
 | `cls` | string | Class name |
 | `m` | string | Method name (resolved for async) |
 | `callCount` | long | Total number of times the method was called |
-| `totalSelfNs` | long | Sum of self time across all calls (excludes child method time) |
-| `maxSelfNs` | long | Maximum self time of any single call |
-| `totalInclusiveNs` | long | Sum of inclusive time across all calls (includes child method time) |
-| `maxInclusiveNs` | long | Maximum inclusive time of any single call |
+| `totalSelfNs` | long | Sum of self-time across all calls (excludes child method time) |
+| `maxSelfNs` | long | Maximum self-time of any single call |
+| `totalInclusiveNs` | long | Sum of inclusive-time across all calls (includes child method time) |
+| `maxInclusiveNs` | long | Maximum inclusive-time of any single call |
 
 ```json
 {"event":"method_stats","tsNs":0,"pid":1234,"sessionId":"a1b2c3","asm":"MyApp","ns":"MyApp.Services","cls":"OrderService","m":"ProcessOrder","callCount":150,"totalSelfNs":45000000,"maxSelfNs":1200000,"totalInclusiveNs":890000000,"maxInclusiveNs":12000000}
@@ -189,8 +189,8 @@ Emitted when the corresponding event type is enabled via `set events`.
 | `tid` | OS thread ID. Use to separate interleaved events from concurrent threads. |
 | `async` | `true` when the method is an async state machine `MoveNext`. The `m` field contains the original method name (not `MoveNext`). |
 | `sessionId` | Session identifier. Matches the `session_metadata` event. |
-| `totalSelfNs` | Sum of self time (excluding children) across all calls. Key metric for identifying CPU-bound bottlenecks. |
-| `totalInclusiveNs` | Sum of inclusive time (including children) across all calls. High inclusive with low self = orchestrator method. |
+| `totalSelfNs` | Sum of self-time (excluding children) across all calls. Key metric for identifying CPU-bound bottlenecks. |
+| `totalInclusiveNs` | Sum of inclusive-time (including children) across all calls. High inclusive with low self = orchestrator method. |
 | `callCount` | Total invocations. High count with modest per-call time = "death by a thousand cuts" pattern. |
 
 ## Async Method Interpretation
