@@ -207,7 +207,7 @@ Async methods in .NET compile to state machine classes named `<MethodName>d__N`.
 
 ### Discovery Analysis (from `method_stats`)
 
-1. Extract all `method_stats` events: `grep '"event":"method_stats"' trace.ndjson`
+1. Extract all `method_stats` events: `grep '"event":"method_stats"' discovery-*.ndjson`
 2. Parse JSON, sort by `totalSelfNs` descending — identifies where CPU time is actually spent
 3. Compare `totalSelfNs` vs `totalInclusiveNs`:
    - **Self ~ Inclusive** — leaf method, the work is here
@@ -217,7 +217,7 @@ Async methods in .NET compile to state machine classes named `<MethodName>d__N`.
 
 ### Exception Discovery (from `exception_stats`)
 
-1. Extract all `exception_stats` events: `grep '"event":"exception_stats"' trace.ndjson`
+1. Extract all `exception_stats` events: `grep '"event":"exception_stats"' discovery-*.ndjson`
 2. Sort by `count` descending — most frequently thrown exceptions
 3. Group by `exType` to find systemic exception patterns
 4. High-count exceptions in hot paths indicate control flow via exceptions (anti-pattern)

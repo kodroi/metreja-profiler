@@ -137,10 +137,11 @@ Validation checks: `sessionId` exists, `output.path` set, at least one include r
 
 ### Strategy A: Short-lived apps (console apps, tests)
 
-Generate the env script then source it and run inline:
+Generate the env script then source it and run inline. Use `$SESSION` for discovery or `$TRACE_SESSION` for targeted tracing:
 
 ```bash
 # Generate env vars as batch script (DLL path is auto-discovered)
+# Use $SESSION for discovery, or $TRACE_SESSION for targeted tracing
 metreja generate-env -s $SESSION --format batch > env.bat
 
 # Source and run:
@@ -200,8 +201,8 @@ for e in exceptions[:10]:
 ```
 
 Present the discovery results to the user. Key interpretation:
-- **High self time, low inclusive time** — the method itself is slow (CPU-bound work, I/O wait)
-- **High inclusive time, low self time** — orchestrator calling slow children (drill into children)
+- **High self-time, low inclusive-time** — the method itself is slow (CPU-bound work, I/O wait)
+- **High inclusive-time, low self-time** — orchestrator calling slow children (drill into children)
 - **High call count with modest per-call time** — death by a thousand cuts (consider caching/batching)
 
 ### Step 2: Decide next action
@@ -313,9 +314,10 @@ for l in sys.stdin:
    ```
    This outputs a table comparing total time per method between the two runs.
 
-3. **Cleanup** — delete the session when done:
+3. **Cleanup** — delete sessions when done:
    ```bash
    metreja clear -s $SESSION
+   metreja clear -s $TRACE_SESSION   # if a targeted session was created
    ```
 
 ## CLI Quick Reference
