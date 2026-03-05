@@ -1,6 +1,16 @@
 # Metreja NDJSON Output Reference
 
-Metreja writes **Newline-Delimited JSON** — one event per line. The first event is always `session_metadata`, followed by `enter`, `leave`, and `exception` events.
+Metreja writes **Newline-Delimited JSON** — one event per line. The first event is always `session_metadata`, followed by events matching the enabled event types configured via `set events`.
+
+## Event Categories
+
+| Category | Event Types | Emission Timing | maxEvents behavior |
+|----------|-------------|----------------|--------------------|
+| Metadata | `session_metadata` | First line, always emitted | Bypass |
+| Per-call | `enter`, `leave`, `exception` | Real-time, one per method call/exit/throw | Count against cap |
+| Aggregated | `method_stats`, `exception_stats` | At profiler shutdown | Bypass |
+| Memory | `gc_start`, `gc_end` | Real-time, on GC events | Bypass |
+| Memory | `alloc_by_class` | Real-time, per-type allocation | Count against cap |
 
 ## Event Type Schemas
 
@@ -71,7 +81,54 @@ Note: exception events do **not** have `depth` or `async` fields.
 {"event":"exception","tsNs":123656789,"pid":1234,"sessionId":"a1b2c3","tid":5678,"asm":"MyApp","ns":"MyApp.Services","cls":"OrderService","m":"ProcessOrder","exType":"System.InvalidOperationException"}
 ```
 
+### `method_stats` (aggregated method statistics)
+
+Emitted at profiler shutdown. One event per unique method. The profiler tracks enter/leave timing in-process and aggregates call counts and timing without emitting per-call events.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `event` | string | Always `"method_stats"` |
+| `tsNs` | long | Always `0` (emitted at shutdown, not tied to a point in time) |
+| `pid` | int | Process ID |
+| `sessionId` | string | Session identifier |
+| `asm` | string | Assembly name |
+| `ns` | string | Namespace |
+| `cls` | string | Class name |
+| `m` | string | Method name (resolved for async) |
+| `callCount` | long | Total number of times the method was called |
+| `totalSelfNs` | long | Sum of self-time across all calls (excludes child method time) |
+| `maxSelfNs` | long | Maximum self-time of any single call |
+| `totalInclusiveNs` | long | Sum of inclusive-time across all calls (includes child method time) |
+| `maxInclusiveNs` | long | Maximum inclusive-time of any single call |
+
+```json
+{"event":"method_stats","tsNs":0,"pid":1234,"sessionId":"a1b2c3","asm":"MyApp","ns":"MyApp.Services","cls":"OrderService","m":"ProcessOrder","callCount":150,"totalSelfNs":45000000,"maxSelfNs":1200000,"totalInclusiveNs":890000000,"maxInclusiveNs":12000000}
+```
+
+### `exception_stats` (aggregated exception statistics)
+
+Emitted at profiler shutdown. One event per unique exception-type + method combination.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `event` | string | Always `"exception_stats"` |
+| `tsNs` | long | Always `0` (emitted at shutdown) |
+| `pid` | int | Process ID |
+| `sessionId` | string | Session identifier |
+| `exType` | string | Exception type (e.g., `System.InvalidOperationException`) |
+| `asm` | string | Assembly name of the throwing method |
+| `ns` | string | Namespace of the throwing method |
+| `cls` | string | Class name of the throwing method |
+| `m` | string | Method name where the exception was thrown |
+| `count` | long | Number of times this exception was thrown from this method |
+
+```json
+{"event":"exception_stats","tsNs":0,"pid":1234,"sessionId":"a1b2c3","exType":"System.InvalidOperationException","asm":"MyApp","ns":"MyApp.Services","cls":"OrderService","m":"ProcessOrder","count":12}
+```
+
 ### `gc_start` (GC collection started)
+
+Emitted when the corresponding event type is enabled via `set events`.
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -90,6 +147,8 @@ Note: exception events do **not** have `depth` or `async` fields.
 
 ### `gc_end` (GC collection finished)
 
+Emitted when the corresponding event type is enabled via `set events`.
+
 | Field | Type | Description |
 |-------|------|-------------|
 | `event` | string | Always `"gc_end"` |
@@ -103,6 +162,8 @@ Note: exception events do **not** have `depth` or `async` fields.
 ```
 
 ### `alloc_by_class` (per-type allocation summary)
+
+Emitted when the corresponding event type is enabled via `set events`.
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -118,18 +179,19 @@ Note: exception events do **not** have `depth` or `async` fields.
 {"event":"alloc_by_class","tsNs":123556789,"pid":1234,"sessionId":"a1b2c3","tid":5678,"className":"System.String","count":1234}
 ```
 
-Note: `gc_start` and `gc_end` events are only emitted when `trackMemory` is enabled in the session config. They do **not** count against `maxEvents`. `alloc_by_class` events **do** count against `maxEvents`.
-
 ## Field Semantics
 
 | Field | Meaning |
 |-------|---------|
-| `tsNs` | Monotonic nanosecond timestamp from `QueryPerformanceCounter`. Monotonically increasing within a run. |
+| `tsNs` | Monotonic nanosecond timestamp from `QueryPerformanceCounter`. Monotonically increasing within a run. For `method_stats`/`exception_stats`, always `0` (emitted at shutdown). |
 | `deltaNs` | Wall-clock nanoseconds from method enter to leave. Always non-negative. Includes time spent in child calls. |
 | `depth` | Call stack depth. 0 = top-level entry point. Increases by 1 for each nested call. |
 | `tid` | OS thread ID. Use to separate interleaved events from concurrent threads. |
 | `async` | `true` when the method is an async state machine `MoveNext`. The `m` field contains the original method name (not `MoveNext`). |
 | `sessionId` | Session identifier. Matches the `session_metadata` event. |
+| `totalSelfNs` | Sum of self-time (excluding children) across all calls. Key metric for identifying CPU-bound bottlenecks. |
+| `totalInclusiveNs` | Sum of inclusive-time (including children) across all calls. High inclusive with low self = orchestrator method. |
+| `callCount` | Total invocations. High count with modest per-call time = "death by a thousand cuts" pattern. |
 
 ## Async Method Interpretation
 
@@ -143,14 +205,31 @@ Async methods in .NET compile to state machine classes named `<MethodName>d__N`.
 
 ## Analysis Algorithms
 
-### Performance Hotspot Detection
+### Discovery Analysis (from `method_stats`)
+
+1. Extract all `method_stats` events: `grep '"event":"method_stats"' discovery-*.ndjson`
+2. Parse JSON, sort by `totalSelfNs` descending — identifies where CPU time is actually spent
+3. Compare `totalSelfNs` vs `totalInclusiveNs`:
+   - **Self ~ Inclusive** — leaf method, the work is here
+   - **Self << Inclusive** — orchestrator, drill into children with targeted tracing
+4. Check `callCount` — high count with modest per-call time suggests batching/caching opportunity
+5. Check `maxSelfNs` vs `totalSelfNs / callCount` — large discrepancy indicates occasional spikes
+
+### Exception Discovery (from `exception_stats`)
+
+1. Extract all `exception_stats` events: `grep '"event":"exception_stats"' discovery-*.ndjson`
+2. Sort by `count` descending — most frequently thrown exceptions
+3. Group by `exType` to find systemic exception patterns
+4. High-count exceptions in hot paths indicate control flow via exceptions (anti-pattern)
+
+### Performance Hotspot Detection (from `enter`/`leave`)
 
 1. Extract all `leave` events: `grep '"event":"leave"' trace.ndjson`
 2. Parse JSON, sort by `deltaNs` descending
 3. Take top-20 entries — these are the slowest individual method calls
 4. Group by `asm.ns.cls.m` to find methods that are consistently slow vs. one-off spikes
 
-### Exception Tracing
+### Exception Tracing (from `exception` events)
 
 1. Find all `exception` events: `grep '"event":"exception"' trace.ndjson`
 2. For each exception, note the line number in the file
@@ -193,6 +272,6 @@ The NDJSON output follows these invariants (enforced by `test/validate.py`):
 1. First event must be `session_metadata`
 2. Each line must be valid JSON
 3. All required fields must be present for each event type
-4. Timestamps must be monotonically non-decreasing
+4. Timestamps must be monotonically non-decreasing (except `method_stats`/`exception_stats` which have `tsNs: 0`)
 5. `deltaNs` values must be non-negative
 6. Enter/leave events should balance per thread (accounting for exceptions breaking the flow)
