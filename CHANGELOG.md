@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## [0.1.4] - 2026-03-05
+
 ### Changed
 
 - **Events system replaces trackMemory** — the `events` config field is now the sole mechanism for controlling event types. `set track-memory` and `set mode` commands have been removed. Use `set events` with specific event types instead (e.g., `gc_start gc_end alloc_by_class` for memory analysis).
