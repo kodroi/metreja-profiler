@@ -175,21 +175,23 @@ Use the built-in analysis commands and grep/python for discovery data. Reference
 
 ### Step 1: Interpret discovery results (from `method_stats`/`exception_stats` sessions)
 
-Discovery sessions emit aggregated stats — read them with grep/python since `metreja hotspots` only reads `enter`/`leave` events.
+Discovery sessions emit aggregated stats. Use `metreja hotspots` directly — it reads both `method_stats` and `enter`/`leave` events:
 
 ```bash
 # Top methods by total self-time (where CPU time is actually spent)
-grep '"event":"method_stats"' discovery-*.ndjson | python3 -c "
-import sys, json
-methods = [json.loads(l) for l in sys.stdin]
-methods.sort(key=lambda m: m['totalSelfNs'], reverse=True)
-print(f\"{'Method':60s} {'Calls':>8s} {'Self(ms)':>10s} {'Incl(ms)':>10s} {'MaxSelf(ms)':>12s}\")
-print('-' * 102)
-for m in methods[:20]:
-    name = f\"{m['ns']}.{m['cls']}.{m['m']}\"
-    print(f\"{name:60s} {m['callCount']:8d} {m['totalSelfNs']/1e6:10.1f} {m['totalInclusiveNs']/1e6:10.1f} {m['maxSelfNs']/1e6:12.1f}\")
-"
+metreja hotspots discovery-*.ndjson --top 20
 
+# Sort by inclusive time, call count, etc.
+metreja hotspots discovery-*.ndjson --top 20 --sort inclusive
+metreja hotspots discovery-*.ndjson --top 20 --sort calls
+
+# Filter to specific namespace
+metreja hotspots discovery-*.ndjson --top 20 --filter "MyApp.Services"
+```
+
+For exception stats (not covered by `hotspots`), use grep/python:
+
+```bash
 # Top exception hotspots
 grep '"event":"exception_stats"' discovery-*.ndjson | python3 -c "
 import sys, json
@@ -312,7 +314,7 @@ for l in sys.stdin:
    ```bash
    metreja analyze-diff base-trace.ndjson optimized-trace.ndjson
    ```
-   This outputs a table comparing total time per method between the two runs.
+   This outputs a table comparing total self-time per method between the two runs, sorted by largest delta. Works with both `leave` events (per-call traces) and `method_stats` events (discovery sessions).
 
 3. **Cleanup** — delete sessions when done:
    ```bash
@@ -346,7 +348,7 @@ for l in sys.stdin:
 - **Start with discovery, not per-call tracing.** Use `method_stats` events first to identify hotspot areas with minimal output. Only switch to `enter`/`leave` events for targeted tracing after you know where to look.
 - **Stats events bypass maxEvents.** `method_stats` and `exception_stats` are not subject to the `maxEvents` cap — they are emitted at profiler shutdown regardless. `gc_start`/`gc_end` also bypass the cap. Only `enter`, `leave`, `exception`, and `alloc_by_class` count against it.
 - **`method_stats` still hooks ELT3.** The overhead is in output size, not execution speed — the profiler hooks every enter/leave regardless and aggregates in-process. Discovery sessions produce far fewer NDJSON lines but the profiled app runs at roughly the same speed.
-- **`metreja hotspots` reads `enter`/`leave` events only.** It does not read `method_stats`. Use grep/python to analyze discovery results (see Phase 4, Step 1).
+- **Two output files with `dotnet run`.** When profiling via `dotnet run`, the .NET host process and the actual app are separate processes — you'll get two NDJSON files (one per PID). The host process file is usually tiny; use the larger file for analysis.
 - **Shell state doesn't persist between Bash tool calls.** Always set env vars inline or use `generate-env --format shell` to create `env.sh` and source it in the same command (see Strategy A).
 - **`COR_PRF_ENABLE_FRAME_INFO`** is already set by the DLL in its event mask — no user action needed.
 - **Large traces blow up context.** Always set `max-events` for per-call tracing sessions (50k for perf, 100k for debugging). Never read an entire large NDJSON file — use grep/python to extract relevant events.
