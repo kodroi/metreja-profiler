@@ -140,12 +140,12 @@ Validation checks: `sessionId` exists, `output.path` set, at least one include r
 Generate the env script then source it and run inline. Use `$SESSION` for discovery or `$TRACE_SESSION` for targeted tracing:
 
 ```bash
-# Generate env vars as batch script (DLL path is auto-discovered)
+# Generate env vars as shell script (DLL path is auto-discovered)
 # Use $SESSION for discovery, or $TRACE_SESSION for targeted tracing
-metreja generate-env -s $SESSION --format batch > env.bat
+metreja generate-env -s $SESSION --format shell > env.sh
 
 # Source and run:
-cmd //c "env.bat && dotnet run --project <target-project-path> -c Release"
+source env.sh && dotnet run --project <target-project-path> -c Release
 ```
 
 The session config JSON is at `.metreja/sessions/<SESSION>.json` relative to the working directory.
@@ -333,7 +333,7 @@ for l in sys.stdin:
 | `set metadata` | `metreja set metadata -s ID [--scenario S]` | Update scenario |
 | `set events` | `metreja set events -s ID TYPE [TYPE2...]` | Set enabled event types (`enter`, `leave`, `exception`, `method_stats`, `exception_stats`, `gc_start`, `gc_end`, `alloc_by_class`) |
 | `validate` | `metreja validate -s ID` | Validate session config |
-| `generate-env` | `metreja generate-env -s ID [--dll-path P] [--format batch\|powershell]` | Generate env var script (DLL path auto-detected) |
+| `generate-env` | `metreja generate-env -s ID [--dll-path P] [--format batch\|powershell\|shell]` | Generate env var script (DLL path auto-detected) |
 | `analyze-diff` | `metreja analyze-diff BASE COMPARE` | Compare two NDJSON traces |
 | `hotspots` | `metreja hotspots FILE [--top N] [--min-ms N] [--sort self\|inclusive\|calls\|allocs] [--filter PAT]...` | Per-method timing hotspots with self-time and allocs |
 | `calltree` | `metreja calltree FILE --method PAT [--tid N] [--occurrence N]` | Call tree for a specific method invocation |
@@ -347,7 +347,7 @@ for l in sys.stdin:
 - **Stats events bypass maxEvents.** `method_stats` and `exception_stats` are not subject to the `maxEvents` cap — they are emitted at profiler shutdown regardless. `gc_start`/`gc_end` also bypass the cap. Only `enter`, `leave`, `exception`, and `alloc_by_class` count against it.
 - **`method_stats` still hooks ELT3.** The overhead is in output size, not execution speed — the profiler hooks every enter/leave regardless and aggregates in-process. Discovery sessions produce far fewer NDJSON lines but the profiled app runs at roughly the same speed.
 - **`metreja hotspots` reads `enter`/`leave` events only.** It does not read `method_stats`. Use grep/python to analyze discovery results (see Phase 4, Step 1).
-- **Shell state doesn't persist between Bash tool calls.** Always set env vars inline on the same command line or use `generate-env` to create a batch script that gets sourced.
+- **Shell state doesn't persist between Bash tool calls.** Always set env vars inline or use `generate-env --format shell` to create `env.sh` and source it in the same command (see Strategy A).
 - **`COR_PRF_ENABLE_FRAME_INFO`** is already set by the DLL in its event mask — no user action needed.
 - **Large traces blow up context.** Always set `max-events` for per-call tracing sessions (50k for perf, 100k for debugging). Never read an entire large NDJSON file — use grep/python to extract relevant events.
 - **Async methods** appear as `<MethodName>d__N` state machine classes. The profiler resolves these: the `m` field shows the original method name, and `async` is `true`. Continuations may appear on different thread IDs than the initial call.
