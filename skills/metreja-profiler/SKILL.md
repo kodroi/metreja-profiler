@@ -347,7 +347,7 @@ for l in sys.stdin:
 - **Stats events bypass maxEvents.** `method_stats` and `exception_stats` are not subject to the `maxEvents` cap — they are emitted at profiler shutdown regardless. `gc_start`/`gc_end` also bypass the cap. Only `enter`, `leave`, `exception`, and `alloc_by_class` count against it.
 - **`method_stats` still hooks ELT3.** The overhead is in output size, not execution speed — the profiler hooks every enter/leave regardless and aggregates in-process. Discovery sessions produce far fewer NDJSON lines but the profiled app runs at roughly the same speed.
 - **`metreja hotspots` reads `enter`/`leave` events only.** It does not read `method_stats`. Use grep/python to analyze discovery results (see Phase 4, Step 1).
-- **Shell state doesn't persist between Bash tool calls.** Always set env vars inline on the same command line or use `generate-env` to create a batch script that gets sourced.
+- **Shell state doesn't persist between Bash tool calls.** Always set env vars inline or use `generate-env --format shell` to create `env.sh` and source it in the same command (see Strategy A).
 - **`COR_PRF_ENABLE_FRAME_INFO`** is already set by the DLL in its event mask — no user action needed.
 - **Large traces blow up context.** Always set `max-events` for per-call tracing sessions (50k for perf, 100k for debugging). Never read an entire large NDJSON file — use grep/python to extract relevant events.
 - **Async methods** appear as `<MethodName>d__N` state machine classes. The profiler resolves these: the `m` field shows the original method name, and `async` is `true`. Continuations may appear on different thread IDs than the initial call.
