@@ -140,12 +140,12 @@ Validation checks: `sessionId` exists, `output.path` set, at least one include r
 Generate the env script then source it and run inline. Use `$SESSION` for discovery or `$TRACE_SESSION` for targeted tracing:
 
 ```bash
-# Generate env vars as batch script (DLL path is auto-discovered)
+# Generate env vars as shell script (DLL path is auto-discovered)
 # Use $SESSION for discovery, or $TRACE_SESSION for targeted tracing
-metreja generate-env -s $SESSION --format batch > env.bat
+metreja generate-env -s $SESSION --format shell > env.sh
 
 # Source and run:
-cmd //c "env.bat && dotnet run --project <target-project-path> -c Release"
+source env.sh && dotnet run --project <target-project-path> -c Release
 ```
 
 The session config JSON is at `.metreja/sessions/<SESSION>.json` relative to the working directory.
@@ -333,7 +333,7 @@ for l in sys.stdin:
 | `set metadata` | `metreja set metadata -s ID [--scenario S]` | Update scenario |
 | `set events` | `metreja set events -s ID TYPE [TYPE2...]` | Set enabled event types (`enter`, `leave`, `exception`, `method_stats`, `exception_stats`, `gc_start`, `gc_end`, `alloc_by_class`) |
 | `validate` | `metreja validate -s ID` | Validate session config |
-| `generate-env` | `metreja generate-env -s ID [--dll-path P] [--format batch\|powershell]` | Generate env var script (DLL path auto-detected) |
+| `generate-env` | `metreja generate-env -s ID [--dll-path P] [--format batch\|powershell\|shell]` | Generate env var script (DLL path auto-detected) |
 | `analyze-diff` | `metreja analyze-diff BASE COMPARE` | Compare two NDJSON traces |
 | `hotspots` | `metreja hotspots FILE [--top N] [--min-ms N] [--sort self\|inclusive\|calls\|allocs] [--filter PAT]...` | Per-method timing hotspots with self-time and allocs |
 | `calltree` | `metreja calltree FILE --method PAT [--tid N] [--occurrence N]` | Call tree for a specific method invocation |
