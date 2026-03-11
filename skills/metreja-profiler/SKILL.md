@@ -342,6 +342,19 @@ for l in sys.stdin:
 | `callers` | `metreja callers FILE --method PAT [--top N]` | Who calls a specific method, with timing |
 | `memory` | `metreja memory FILE [--top N] [--filter PAT]...` | GC summary and allocation hotspots by class |
 | `clear` | `metreja clear -s ID \| --all` | Delete session(s) |
+| `report` | `metreja report -t TITLE -d DESCRIPTION` | Report an issue to GitHub (requires `gh` CLI) |
+
+## Reporting Issues
+
+If you encounter a bug or unexpected behavior, report it directly from the CLI:
+
+```bash
+metreja report --title "Bug title" --description "Detailed description of what happened."
+```
+
+This creates a GitHub issue on the [kodroi/Metreja](https://github.com/kodroi/Metreja) repository. Requires the [GitHub CLI (`gh`)](https://cli.github.com/) installed and authenticated (`gh auth login`).
+
+**Exit codes:** `0` = success, `2` = `gh` not installed, `3` = `gh` not authenticated, `1` = GitHub API error.
 
 ## Common Pitfalls
 
