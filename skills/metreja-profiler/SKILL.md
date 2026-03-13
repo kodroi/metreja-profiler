@@ -168,8 +168,13 @@ For apps that don't exit on their own:
 1. Generate the env script: `metreja generate-env -s $SESSION --format powershell`
 2. Print the env vars to the user with instructions to paste into their terminal
 3. Tell the user to run their app manually
-4. Wait for the user to signal that the app has been exercised and stopped
-5. Proceed to Phase 4 with the generated NDJSON file
+4. While the app is running, you can trigger a manual stats flush to inspect results without stopping:
+   ```bash
+   metreja flush --pid <PID>
+   ```
+   This signals the profiler to write current delta `method_stats`/`exception_stats` to the NDJSON file immediately.
+5. Wait for the user to signal that the app has been exercised and stopped
+6. Proceed to Phase 4 with the generated NDJSON file
 
 ### Required Environment Variables
 
@@ -354,6 +359,7 @@ for l in sys.stdin:
 | `callers` | `metreja callers FILE --method PAT [--top N]` | Who calls a specific method, with timing |
 | `memory` | `metreja memory FILE [--top N] [--filter PAT]...` | GC summary and allocation hotspots by class |
 | `clear` | `metreja clear -s ID \| --all` | Delete session(s) |
+| `flush` | `metreja flush --pid PID` | Trigger manual stats flush on a running profiled process |
 | `report` | `metreja report -t TITLE -d DESCRIPTION` | Report an issue to GitHub (requires `gh` CLI) |
 
 ## Reporting Issues
@@ -373,6 +379,7 @@ This creates a GitHub issue on the [kodroi/Metreja](https://github.com/kodroi/Me
 - **Start with discovery, not per-call tracing.** Use `method_stats` events first to identify hotspot areas with minimal output. Only switch to `enter`/`leave` events for targeted tracing after you know where to look.
 - **Stats events bypass maxEvents.** `method_stats` and `exception_stats` are not subject to the `maxEvents` cap — they are emitted both periodically (per `statsFlushIntervalSeconds`, default 30s) and at final profiler shutdown. `gc_start`/`gc_end` also bypass the cap. Only `enter`, `leave`, `exception`, and `alloc_by_class` count against it.
 - **Periodic stats flush protects against force-kill data loss.** By default (`statsFlushIntervalSeconds: 30`), the profiler periodically writes delta `method_stats`/`exception_stats` events to disk. If the profiled process is force-killed, you retain stats up to the last flush. Set to `0` to disable. For long-running processes or processes that may be killed, the default is recommended. The C# consumers (`hotspots`, `analyze-diff`) automatically sum multiple delta stats events.
+- **Manual flush requires PID and stats events.** `metreja flush --pid PID` only works when the profiled process has `method_stats` or `exception_stats` events enabled. The PID is printed by `metreja run --detach` or visible in the output filename (`{pid}` token). The flush uses a named Windows event (`MetrejaFlush_{pid}`) for inter-process signaling.
 - **One filter level per command.** Each `add include`/`add exclude` command accepts only one of `--assembly`, `--namespace`, `--class`, or `--method`. To filter at multiple levels, use separate commands. Multiple patterns per level are allowed (e.g., `--namespace "A" --namespace "B"`).
 - **`method_stats` still hooks ELT3.** The overhead is in output size, not execution speed — the profiler hooks every enter/leave regardless and aggregates in-process. Discovery sessions produce far fewer NDJSON lines but the profiled app runs at roughly the same speed.
 - **Two output files with `dotnet run`.** When profiling via `dotnet run`, the .NET host process and the actual app are separate processes — you'll get two NDJSON files (one per PID). The host process file is usually tiny; use the larger file for analysis.
