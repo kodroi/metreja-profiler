@@ -300,7 +300,7 @@ Use this to identify: frequent gen2 collections (memory pressure), high allocati
 | 1 (discovery) | `--assembly "AppName"` | `method_stats exception_stats` | Initial discovery — identify hotspot areas |
 | 2 (targeted) | `--namespace "Slow.Namespace"` | `enter leave exception` | Hotspot points to a namespace |
 | 3 (focused) | `--class "SlowClass"` | `enter leave exception` | Hotspot points to a specific class |
-| 4 (precise) | `--class "SlowClass" --method "SlowMethod"` | `enter leave exception` | Need internal method-level detail |
+| 4 (precise) | `--method "SlowMethod"` | `enter leave exception` | Need internal method-level detail |
 
 **Keep drilling until:** the leaf method is identified (no further children), or the bottleneck is in external code (framework/DB/IO) where profiling won't help.
 
@@ -371,7 +371,7 @@ This creates a GitHub issue on the [kodroi/Metreja](https://github.com/kodroi/Me
 ## Common Pitfalls
 
 - **Start with discovery, not per-call tracing.** Use `method_stats` events first to identify hotspot areas with minimal output. Only switch to `enter`/`leave` events for targeted tracing after you know where to look.
-- **Stats events bypass maxEvents.** `method_stats` and `exception_stats` are not subject to the `maxEvents` cap — they are emitted at profiler shutdown regardless. `gc_start`/`gc_end` also bypass the cap. Only `enter`, `leave`, `exception`, and `alloc_by_class` count against it.
+- **Stats events bypass maxEvents.** `method_stats` and `exception_stats` are not subject to the `maxEvents` cap — they are emitted both periodically (per `statsFlushIntervalSeconds`, default 30s) and at final profiler shutdown. `gc_start`/`gc_end` also bypass the cap. Only `enter`, `leave`, `exception`, and `alloc_by_class` count against it.
 - **Periodic stats flush protects against force-kill data loss.** By default (`statsFlushIntervalSeconds: 30`), the profiler periodically writes delta `method_stats`/`exception_stats` events to disk. If the profiled process is force-killed, you retain stats up to the last flush. Set to `0` to disable. For long-running processes or processes that may be killed, the default is recommended. The C# consumers (`hotspots`, `analyze-diff`) automatically sum multiple delta stats events.
 - **One filter level per command.** Each `add include`/`add exclude` command accepts only one of `--assembly`, `--namespace`, `--class`, or `--method`. To filter at multiple levels, use separate commands. Multiple patterns per level are allowed (e.g., `--namespace "A" --namespace "B"`).
 - **`method_stats` still hooks ELT3.** The overhead is in output size, not execution speed — the profiler hooks every enter/leave regardless and aggregates in-process. Discovery sessions produce far fewer NDJSON lines but the profiled app runs at roughly the same speed.
