@@ -54,7 +54,7 @@ dotnet tool install -g Metreja
 
 | Category | Event Types | Description | maxEvents behavior |
 |----------|-------------|-------------|--------------------|
-| Aggregated | `method_stats`, `exception_stats` | In-profiler summaries emitted at shutdown | Bypass maxEvents cap |
+| Aggregated | `method_stats`, `exception_stats` | In-profiler summaries emitted periodically and at shutdown | Bypass maxEvents cap |
 | Per-call | `enter`, `leave`, `exception` | One event per method call/exit/throw | Count against maxEvents |
 | Memory | `gc_start`, `gc_end`, `alloc_by_class` | GC and allocation tracking | `gc_*` bypass cap; `alloc_by_class` counts |
 
@@ -65,12 +65,23 @@ dotnet tool install -g Metreja
 | Use Case | Include Filters | Exclude Filters | Events | max-events |
 |----------|----------------|-----------------|--------|------------|
 | Broad performance discovery | `--assembly "AppName"` | `System.*`, `Microsoft.*` | `method_stats exception_stats` | not needed (stats bypass cap) |
-| Focused method perf | `--assembly "AppName" --class "ClassName"` | `System.*`, `Microsoft.*` | `enter leave exception` | 50000 |
-| Debug specific flow | `--assembly "AppName" --namespace "Ns"` | (none) | `enter leave exception` | 100000 |
+| Focused method perf | `--class "ClassName"` | `System.*`, `Microsoft.*` | `enter leave exception` | 50000 |
+| Debug specific flow | `--namespace "Ns"` | (none) | `enter leave exception` | 100000 |
 | Debug exception | `--assembly "AppName"` | (none) | `enter leave exception exception_stats` | 100000 |
 | Memory / GC analysis | `--assembly "AppName"` | `System.*`, `Microsoft.*` | `gc_start gc_end alloc_by_class` | 50000 |
 
 **Filter patterns** support `*` as wildcard (e.g., `System.*` matches `System.IO`, `System.Linq`, etc.).
+
+4. **Understand filter evaluation logic:**
+   - A method is traced if it matches **any** include rule AND does **not** match **any** exclude rule
+   - Each `add include`/`add exclude` command accepts exactly **one level** (`--assembly`, `--namespace`, `--class`, or `--method`) but can take **multiple patterns** at that level (e.g., `--namespace "A" --namespace "B"`)
+   - Filters are evaluated at JIT time via `FunctionIDMapper2` — excluded methods get zero ELT3 overhead (no per-call cost)
+   - **Example — exclude high-frequency API clients within an included assembly:**
+     ```bash
+     metreja add include -s $SESSION --assembly "MyApp"
+     metreja add exclude -s $SESSION --namespace "MyApp.Generated"
+     metreja add exclude -s $SESSION --class "*ApiClient"
+     ```
 
 ## Phase 2: Session Setup
 
@@ -334,6 +345,7 @@ for l in sys.stdin:
 | `set max-events` | `metreja set max-events -s ID N` | Cap event count (0 = unlimited) |
 | `set metadata` | `metreja set metadata -s ID [--scenario S]` | Update scenario |
 | `set events` | `metreja set events -s ID TYPE [TYPE2...]` | Set enabled event types (`enter`, `leave`, `exception`, `method_stats`, `exception_stats`, `gc_start`, `gc_end`, `alloc_by_class`) |
+| `set stats-flush-interval` | `metreja set stats-flush-interval -s ID SECONDS` | Periodic stats flush interval (default 30s, 0 = disabled). Protects against data loss on force-kill. |
 | `validate` | `metreja validate -s ID` | Validate session config |
 | `generate-env` | `metreja generate-env -s ID [--dll-path P] [--format batch\|powershell\|shell]` | Generate env var script (DLL path auto-detected) |
 | `analyze-diff` | `metreja analyze-diff BASE COMPARE` | Compare two NDJSON traces |
@@ -360,6 +372,8 @@ This creates a GitHub issue on the [kodroi/Metreja](https://github.com/kodroi/Me
 
 - **Start with discovery, not per-call tracing.** Use `method_stats` events first to identify hotspot areas with minimal output. Only switch to `enter`/`leave` events for targeted tracing after you know where to look.
 - **Stats events bypass maxEvents.** `method_stats` and `exception_stats` are not subject to the `maxEvents` cap — they are emitted at profiler shutdown regardless. `gc_start`/`gc_end` also bypass the cap. Only `enter`, `leave`, `exception`, and `alloc_by_class` count against it.
+- **Periodic stats flush protects against force-kill data loss.** By default (`statsFlushIntervalSeconds: 30`), the profiler periodically writes delta `method_stats`/`exception_stats` events to disk. If the profiled process is force-killed, you retain stats up to the last flush. Set to `0` to disable. For long-running processes or processes that may be killed, the default is recommended. The C# consumers (`hotspots`, `analyze-diff`) automatically sum multiple delta stats events.
+- **One filter level per command.** Each `add include`/`add exclude` command accepts only one of `--assembly`, `--namespace`, `--class`, or `--method`. To filter at multiple levels, use separate commands. Multiple patterns per level are allowed (e.g., `--namespace "A" --namespace "B"`).
 - **`method_stats` still hooks ELT3.** The overhead is in output size, not execution speed — the profiler hooks every enter/leave regardless and aggregates in-process. Discovery sessions produce far fewer NDJSON lines but the profiled app runs at roughly the same speed.
 - **Two output files with `dotnet run`.** When profiling via `dotnet run`, the .NET host process and the actual app are separate processes — you'll get two NDJSON files (one per PID). The host process file is usually tiny; use the larger file for analysis.
 - **Shell state doesn't persist between Bash tool calls.** Always set env vars inline or use `generate-env --format shell` to create `env.sh` and source it in the same command (see Strategy A).
