@@ -10,10 +10,10 @@ description: Use when profiling .NET applications for performance bottlenecks, s
 | Asset | Details |
 |-------|---------|
 | CLI | `metreja` (installed as .NET global tool) |
-| Package | `Metreja` on NuGet |
+| Package | `Metreja.Tool` on NuGet |
 | CLSID | `{7C8F944B-4810-4999-BF98-6A3361185FC2}` |
 
-The native profiler DLL is bundled inside the tool package and auto-discovered at runtime — no manual path configuration needed.
+The native profiler library (`Metreja.Profiler.dll` on Windows, `libMetreja.Profiler.dylib` on macOS) is bundled inside the tool package and auto-discovered at runtime — no manual path configuration needed.
 
 ## Use-Case Detection
 
@@ -43,7 +43,7 @@ dotnet tool list -g | grep -i metreja
 If missing, install it:
 
 ```bash
-dotnet tool install -g Metreja
+dotnet tool install -g Metreja.Tool
 ```
 
 ## Phase 1: Target Analysis & Filter Design
@@ -182,7 +182,7 @@ For apps that don't exit on their own:
 |----------|-------|
 | `CORECLR_ENABLE_PROFILING` | `1` |
 | `CORECLR_PROFILER` | `{7C8F944B-4810-4999-BF98-6A3361185FC2}` |
-| `CORECLR_PROFILER_PATH` | Absolute path to `Metreja.Profiler.dll` (auto-resolved by `generate-env`) |
+| `CORECLR_PROFILER_PATH` | Absolute path to `Metreja.Profiler.dll` (Windows) or `libMetreja.Profiler.dylib` (macOS) — auto-resolved by `generate-env` |
 | `METREJA_CONFIG` | Absolute path to session JSON (`.metreja/sessions/<id>.json`) |
 
 ## Phase 4: Analysis
@@ -379,7 +379,7 @@ This creates a GitHub issue on the [kodroi/Metreja](https://github.com/kodroi/Me
 - **Start with discovery, not per-call tracing.** Use `method_stats` events first to identify hotspot areas with minimal output. Only switch to `enter`/`leave` events for targeted tracing after you know where to look.
 - **Stats events bypass maxEvents.** `method_stats` and `exception_stats` are not subject to the `maxEvents` cap — they are emitted both periodically (per `statsFlushIntervalSeconds`, default 30s) and at final profiler shutdown. `gc_start`/`gc_end` also bypass the cap. Only `enter`, `leave`, `exception`, and `alloc_by_class` count against it.
 - **Periodic stats flush protects against force-kill data loss.** By default (`statsFlushIntervalSeconds: 30`), the profiler periodically writes delta `method_stats`/`exception_stats` events to disk. If the profiled process is force-killed, you retain stats up to the last flush. Set to `0` to disable. For long-running processes or processes that may be killed, the default is recommended. The C# consumers (`hotspots`, `analyze-diff`) automatically sum multiple delta stats events.
-- **Manual flush requires PID and stats events.** `metreja flush --pid PID` only works when the profiled process has `method_stats` or `exception_stats` events enabled. The PID can be obtained from the output filename (when the `{pid}` token is used) or via the OS process listing. The flush uses a named Windows event (`MetrejaFlush_{pid}`) for inter-process signaling.
+- **Manual flush requires PID and stats events.** `metreja flush --pid PID` only works when the profiled process has `method_stats` or `exception_stats` events enabled. The PID can be obtained from the output filename (when the `{pid}` token is used) or via the OS process listing. The flush uses a named Windows event (`MetrejaFlush_{pid}`) or a POSIX named semaphore (`/MetrejaFlush_{pid}`) on macOS for inter-process signaling.
 - **One filter level per command.** Each `add include`/`add exclude` command accepts only one of `--assembly`, `--namespace`, `--class`, or `--method`. To filter at multiple levels, use separate commands. Multiple patterns per level are allowed (e.g., `--namespace "A" --namespace "B"`).
 - **`method_stats` still hooks ELT3.** The overhead is in output size, not execution speed — the profiler hooks every enter/leave regardless and aggregates in-process. Discovery sessions produce far fewer NDJSON lines but the profiled app runs at roughly the same speed.
 - **Two output files with `dotnet run`.** When profiling via `dotnet run`, the .NET host process and the actual app are separate processes — you'll get two NDJSON files (one per PID). The host process file is usually tiny; use the larger file for analysis.
