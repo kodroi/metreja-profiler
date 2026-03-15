@@ -148,11 +148,22 @@ Validation checks: `sessionId` exists, `output.path` set, at least one include r
 
 ### Strategy A: Short-lived apps (console apps, tests)
 
-Generate the env script then source it and run inline. Use `$SESSION` for discovery or `$TRACE_SESSION` for targeted tracing:
+**Option 1 — `run` command (simplest):**
+
+```bash
+# Launches the executable with profiler env vars set automatically
+metreja run -s $SESSION -- dotnet run --project <target-project-path> -c Release
+```
+
+For GUI apps that shouldn't block the terminal:
+```bash
+metreja run -s $SESSION --detach -- MyApp.exe
+```
+
+**Option 2 — `generate-env` + manual source (when `run` isn't suitable):**
 
 ```bash
 # Generate env vars as shell script (DLL path is auto-discovered)
-# Use $SESSION for discovery, or $TRACE_SESSION for targeted tracing
 metreja generate-env -s $SESSION --format shell > env.sh
 
 # Source and run:
@@ -205,17 +216,14 @@ metreja hotspots discovery-*.ndjson --top 20 --sort calls
 metreja hotspots discovery-*.ndjson --top 20 --filter "MyApp.Services"
 ```
 
-For exception stats (not covered by `hotspots`), use grep/python:
+For exception analysis, use the built-in `exceptions` command:
 
 ```bash
-# Top exception hotspots
-grep '"event":"exception_stats"' discovery-*.ndjson | python3 -c "
-import sys, json
-exceptions = [json.loads(l) for l in sys.stdin]
-exceptions.sort(key=lambda e: e['count'], reverse=True)
-for e in exceptions[:10]:
-    print(f\"  {e['count']:6d}x  {e['exType']}  in  {e['ns']}.{e['cls']}.{e['m']}\")
-"
+# Top exception types by frequency with throw-site methods
+metreja exceptions discovery-*.ndjson --top 10
+
+# Filter to specific exception types
+metreja exceptions discovery-*.ndjson --filter "InvalidOperation"
 ```
 
 Present the discovery results to the user. Key interpretation:
@@ -275,6 +283,25 @@ metreja hotspots trace.ndjson --filter "SlowClass"
 metreja hotspots trace.ndjson --filter "MyApp.Data" --filter "MyApp.Services"
 ```
 
+### Step 3b: Additional analysis commands
+
+```bash
+# Trace overview — quick summary of event counts, duration, threads, methods
+metreja summary trace.ndjson
+
+# Chronological event timeline with filtering
+metreja timeline trace.ndjson --top 50
+metreja timeline trace.ndjson --tid 5678 --event-type enter
+metreja timeline trace.ndjson --method "ProcessOrder"
+
+# Per-thread breakdown — how work distributes across threads
+metreja threads trace.ndjson
+metreja threads trace.ndjson --sort time
+
+# Method performance trend across periodic stats flushes
+metreja trend trace.ndjson --method "DoWork"
+```
+
 ### Step 4: Memory analysis (when gc/alloc events are enabled)
 
 ```bash
@@ -312,12 +339,8 @@ Use this to identify: frequent gen2 collections (memory pressure), high allocati
 #### Exception tracing (when relevant)
 
 ```bash
-grep '"event":"exception"' trace.ndjson | python3 -c "
-import sys, json
-for l in sys.stdin:
-    e = json.loads(l)
-    print(f\"  {e['exType']}  in  {e['ns']}.{e['cls']}.{e['m']}\")
-"
+# Exception analysis with throw-site attribution
+metreja exceptions trace.ndjson --top 10
 ```
 
 ## Phase 5: Findings & Cleanup
@@ -332,7 +355,28 @@ for l in sys.stdin:
    ```
    This outputs a table comparing total self-time per method between the two runs, sorted by largest delta. Works with both `leave` events (per-call traces) and `method_stats` events (discovery sessions).
 
-3. **Cleanup** — delete sessions when done:
+3. **CI regression gate** (optional, for pipeline integration):
+   ```bash
+   metreja check baseline.ndjson optimized.ndjson --threshold 10
+   # Exit 0 = pass, Exit 1 = regression detected
+   ```
+   Use `check` in CI pipelines to fail builds when methods regress beyond the threshold percentage.
+
+4. **Export for visualization** (optional):
+   ```bash
+   # Speedscope flame chart — open at https://www.speedscope.app/
+   metreja export trace.ndjson --format speedscope
+
+   # CSV spreadsheet — for Excel/pandas analysis
+   metreja export trace.ndjson --format csv --output hotspots.csv
+   ```
+
+5. **Merge multi-process traces** (optional, when profiling `dotnet run` produces two files):
+   ```bash
+   metreja merge trace-pid1.ndjson trace-pid2.ndjson --output merged.ndjson
+   ```
+
+6. **Cleanup** — delete sessions when done:
    ```bash
    metreja clear -s $SESSION
    metreja clear -s $TRACE_SESSION   # if a targeted session was created
@@ -345,19 +389,32 @@ for l in sys.stdin:
 | `init` | `metreja init [--scenario NAME]` | Create session, prints session ID |
 | `add include` | `metreja add include -s ID [--assembly P] [--namespace P] [--class P] [--method P]` | Add include filter |
 | `add exclude` | `metreja add exclude -s ID [--assembly P] [--namespace P] [--class P] [--method P]` | Add exclude filter |
+| `remove include` | `metreja remove include -s ID [--assembly P] [--namespace P] [--class P] [--method P]` | Remove an include filter by exact match |
+| `remove exclude` | `metreja remove exclude -s ID [--assembly P] [--namespace P] [--class P] [--method P]` | Remove an exclude filter by exact match |
+| `clear-filters` | `metreja clear-filters -s ID [--type include\|exclude]` | Clear all filter rules (or just include/exclude) |
 | `set output` | `metreja set output -s ID PATH` | Set output path (supports `{sessionId}`, `{pid}` tokens) |
 | `set compute-deltas` | `metreja set compute-deltas -s ID true\|false` | Enable/disable delta timing |
 | `set max-events` | `metreja set max-events -s ID N` | Cap event count (0 = unlimited) |
 | `set metadata` | `metreja set metadata -s ID [--scenario S]` | Update scenario |
-| `set events` | `metreja set events -s ID TYPE [TYPE2...]` | Set enabled event types (`enter`, `leave`, `exception`, `method_stats`, `exception_stats`, `gc_start`, `gc_end`, `alloc_by_class`) |
+| `set events` | `metreja set events -s ID TYPE [TYPE2...]` | Set enabled event types (`enter`, `leave`, `exception`, `method_stats`, `exception_stats`, `gc_start`, `gc_end`, `alloc_by_class`, `contention_start`, `contention_end`) |
 | `set stats-flush-interval` | `metreja set stats-flush-interval -s ID SECONDS` | Periodic stats flush interval (default 30s, 0 = disabled). Protects against data loss on force-kill. |
 | `validate` | `metreja validate -s ID` | Validate session config |
 | `generate-env` | `metreja generate-env -s ID [--dll-path P] [--format batch\|powershell\|shell]` | Generate env var script (DLL path auto-detected) |
-| `analyze-diff` | `metreja analyze-diff BASE COMPARE` | Compare two NDJSON traces |
-| `hotspots` | `metreja hotspots FILE [--top N] [--min-ms N] [--sort self\|inclusive\|calls\|allocs] [--filter PAT]...` | Per-method timing hotspots with self-time and allocs |
-| `calltree` | `metreja calltree FILE --method PAT [--tid N] [--occurrence N]` | Call tree for a specific method invocation |
-| `callers` | `metreja callers FILE --method PAT [--top N]` | Who calls a specific method, with timing |
-| `memory` | `metreja memory FILE [--top N] [--filter PAT]...` | GC summary and allocation hotspots by class |
+| `run` | `metreja run -s ID [--detach] -- EXE [ARGS...]` | Launch executable with profiler attached |
+| `analyze-diff` | `metreja analyze-diff BASE COMPARE [--format text\|json]` | Compare two NDJSON traces |
+| `hotspots` | `metreja hotspots FILE [--top N] [--min-ms N] [--sort self\|inclusive\|calls\|allocs] [--filter PAT]... [--format text\|json]` | Per-method timing hotspots with self-time and allocs |
+| `calltree` | `metreja calltree FILE --method PAT [--tid N] [--occurrence N] [--format text\|json]` | Call tree for a specific method invocation |
+| `callers` | `metreja callers FILE --method PAT [--top N] [--format text\|json]` | Who calls a specific method, with timing |
+| `memory` | `metreja memory FILE [--top N] [--filter PAT]... [--format text\|json]` | GC summary and allocation hotspots by class |
+| `summary` | `metreja summary FILE [--format text\|json]` | Trace overview: event counts, duration, threads, methods |
+| `exceptions` | `metreja exceptions FILE [--top N] [--filter PAT]... [--format text\|json]` | Rank exception types by frequency with throw-site methods |
+| `timeline` | `metreja timeline FILE [--tid N] [--event-type T] [--method PAT] [--top N] [--format text\|json]` | Chronological event listing with filtering |
+| `threads` | `metreja threads FILE [--sort calls\|time] [--format text\|json]` | Per-thread breakdown: call counts, timing, activity windows |
+| `trend` | `metreja trend FILE --method PAT [--format text\|json]` | Method performance trend across periodic stats flushes |
+| `check` | `metreja check BASE COMPARE [--threshold N] [--format text\|json]` | CI regression gate: exit non-zero on regression (default threshold 10%) |
+| `list` | `metreja list` | List existing profiling sessions |
+| `merge` | `metreja merge FILE [FILE2...] --output PATH` | Combine multiple trace files sorted by timestamp |
+| `export` | `metreja export FILE [--format speedscope\|csv] [--output PATH]` | Convert traces to speedscope or CSV format |
 | `clear` | `metreja clear -s ID \| --all` | Delete session(s) |
 | `flush` | `metreja flush --pid PID` | Trigger manual stats flush on a running profiled process |
 | `report` | `metreja report -t TITLE -d DESCRIPTION` | Report an issue to GitHub (requires `gh` CLI) |

@@ -11,6 +11,7 @@ Metreja writes **Newline-Delimited JSON** — one event per line. The first even
 | Aggregated | `method_stats`, `exception_stats` | At profiler shutdown | Bypass |
 | Memory | `gc_start`, `gc_end` | Real-time, on GC events | Bypass |
 | Memory | `alloc_by_class` | Real-time, per-type allocation | Count against cap |
+| Contention | `contention_start`, `contention_end` | Real-time, via EventPipe (.NET 5+) | Count against cap |
 
 ## Event Type Schemas
 
@@ -55,9 +56,16 @@ Same fields as `enter` plus:
 | Field | Type | Description |
 |-------|------|-------------|
 | `deltaNs` | long | Elapsed nanoseconds from enter to leave |
+| `tailcall` | bool | *(optional)* `true` if method exited via tail call |
+| `wallTimeNs` | long | *(optional, async only)* Wall-clock time from first enter to final leave of the async method |
 
 ```json
 {"event":"leave","tsNs":123556789,"pid":1234,"sessionId":"a1b2c3","tid":5678,"depth":2,"asm":"MyApp","ns":"MyApp.Services","cls":"OrderService","m":"ProcessOrder","async":false,"deltaNs":100000}
+```
+
+For async methods with wall-time tracking:
+```json
+{"event":"leave","tsNs":200,"pid":1234,"sessionId":"a1b2c3","tid":5,"depth":1,"asm":"MyApp","ns":"MyApp","cls":"Service","m":"DoWorkAsync","deltaNs":50,"async":true,"wallTimeNs":150000}
 ```
 
 ### `exception` (exception thrown)
@@ -177,6 +185,50 @@ Emitted when the corresponding event type is enabled via `set events`.
 
 ```json
 {"event":"alloc_by_class","tsNs":123556789,"pid":1234,"sessionId":"a1b2c3","tid":5678,"className":"System.String","count":1234}
+```
+
+When ELT hooks are active, allocation events may include call-site attribution:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `allocAsm` | string | *(optional)* Assembly of the allocating method |
+| `allocNs` | string | *(optional)* Namespace of the allocating method |
+| `allocCls` | string | *(optional)* Class of the allocating method |
+| `allocM` | string | *(optional)* Method name of the allocating method |
+
+```json
+{"event":"alloc_by_class","tsNs":123556789,"pid":1234,"sessionId":"a1b2c3","tid":5678,"className":"System.String","count":42,"allocAsm":"MyApp","allocNs":"MyApp.Services","allocCls":"UserService","allocM":"GetUser"}
+```
+
+### `contention_start` (lock contention started)
+
+Emitted via EventPipe when `contention_start` event type is enabled. Requires .NET 5+ runtime.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `event` | string | Always `"contention_start"` |
+| `tsNs` | long | Timestamp in nanoseconds |
+| `pid` | int | Process ID |
+| `sessionId` | string | Session identifier |
+| `tid` | int | OS thread ID |
+
+```json
+{"event":"contention_start","tsNs":123456789,"pid":1234,"sessionId":"a1b2c3","tid":5678}
+```
+
+### `contention_end` (lock contention ended)
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `event` | string | Always `"contention_end"` |
+| `tsNs` | long | Timestamp in nanoseconds |
+| `pid` | int | Process ID |
+| `sessionId` | string | Session identifier |
+| `tid` | int | OS thread ID |
+| `durationNs` | long | Duration the thread was blocked waiting for the lock |
+
+```json
+{"event":"contention_end","tsNs":123556789,"pid":1234,"sessionId":"a1b2c3","tid":5678,"durationNs":5000000}
 ```
 
 ## Field Semantics
