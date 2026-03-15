@@ -7,7 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
-## [0.1.11] - 2026-03-15
+## [1.0.0] - 2026-03-15
+
+### Added
+
+- `run` command for launching profiled apps directly
+- `remove include`/`remove exclude` commands for undoing filter rules
+- `clear-filters` command to clear all filter rules
+- `summary`, `exceptions`, `timeline`, `threads`, `trend`, `check`, `list`, `merge`, `export` commands
+- `--format text|json` option on all analysis commands
+- `export --format csv` for CSV spreadsheet output
+- `contention_start`/`contention_end` event types for lock contention tracking
+- Async wall-time tracking (`wallTimeNs` on leave events)
+- Allocation call-site attribution (`allocAsm`/`allocNs`/`allocCls`/`allocM` fields)
+- CI regression gate with `check` command
 
 ## [0.1.10] - 2026-03-14
 
