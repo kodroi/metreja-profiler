@@ -17,7 +17,7 @@ jobs:
     outputs:
       should_version: ${{ steps.check.outputs.should_version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 2
 
@@ -43,7 +43,7 @@ jobs:
     name: Validate plugin
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Validate plugin.json
         run: python3 -c "import json; json.load(open('.claude-plugin/plugin.json'))"
@@ -68,7 +68,7 @@ jobs:
       minor: ${{ steps.gitversion.outputs.minor }}
       patch: ${{ steps.gitversion.outputs.patch }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -90,7 +90,7 @@ jobs:
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -129,7 +129,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout marketplace repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: kodroi/metreja-profiler-marketplace
           token: ${{ secrets.MARKETPLACE_TOKEN }}
