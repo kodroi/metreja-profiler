@@ -1,7 +1,7 @@
 {
   "name": "metreja-profiler",
   "description": ".NET Call-Path Profiler \u2014 profile performance bottlenecks and trace execution flow",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "author": {
     "name": "Iiro Rahkonen"
   },
