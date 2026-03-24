@@ -70,7 +70,11 @@ dotnet tool install -g Metreja.Tool
 | Debug exception | `--assembly "AppName"` | (none) | `enter leave exception exception_stats` | 100000 |
 | Memory / GC analysis | `--assembly "AppName"` | `System.*`, `Microsoft.*` | `gc_start gc_end alloc_by_class` | 50000 |
 
-**Filter patterns** support `*` as wildcard (e.g., `System.*` matches `System.IO`, `System.Linq`, etc.).
+**Filter patterns** support `*` as a trailing or leading wildcard:
+   - `System.*` matches `System.IO`, `System.Linq`, etc.
+   - `MyApp*` matches `MyApp`, `MyApp.Web`, `MyApp.Data`, etc.
+   - `*.Service` matches `MyApp.Service`, `Other.Service`, etc.
+   - `*` matches everything
 
 4. **Understand filter evaluation logic:**
    - A method is traced if it matches **any** include rule AND does **not** match **any** exclude rule
@@ -384,6 +388,8 @@ metreja exceptions trace.ndjson --top 10
 
 ## CLI Quick Reference
 
+**Global option:** `--debug` — Enable debug logging to stderr (or set `METREJA_DEBUG=1`)
+
 | Command | Syntax | Purpose |
 |---------|--------|---------|
 | `init` | `metreja init [--scenario NAME]` | Create session, prints session ID |
@@ -431,6 +437,20 @@ This creates a GitHub issue on the [kodroi/Metreja](https://github.com/kodroi/Me
 
 **Exit codes:** `0` = success, `2` = `gh` not installed, `3` = `gh` not authenticated, `1` = GitHub API error.
 
+## Debugging
+
+When something isn't working as expected, use the `--debug` flag or set `METREJA_DEBUG=1` to enable debug logging to stderr:
+
+```bash
+# Via flag
+metreja --debug run -s $SESSION -- dotnet test MyTests.csproj
+
+# Via environment variable
+METREJA_DEBUG=1 metreja run -s $SESSION -- dotnet test MyTests.csproj
+```
+
+Debug output covers: CLI lifecycle, telemetry initialization, session config details, profiler path resolution, and process launch. Useful for diagnosing missing events, config loading issues, or telemetry failures.
+
 ## Common Pitfalls
 
 - **Start with discovery, not per-call tracing.** Use `method_stats` events first to identify hotspot areas with minimal output. Only switch to `enter`/`leave` events for targeted tracing after you know where to look.
@@ -439,7 +459,7 @@ This creates a GitHub issue on the [kodroi/Metreja](https://github.com/kodroi/Me
 - **Manual flush requires PID and stats events.** `metreja flush --pid PID` only works when the profiled process has `method_stats` or `exception_stats` events enabled. The PID can be obtained from the output filename (when the `{pid}` token is used) or via the OS process listing. The flush uses a named Windows event (`MetrejaFlush_{pid}`) or a POSIX named semaphore (`/MetrejaFlush_{pid}`) on macOS for inter-process signaling.
 - **One filter level per command.** Each `add include`/`add exclude` command accepts only one of `--assembly`, `--namespace`, `--class`, or `--method`. To filter at multiple levels, use separate commands. Multiple patterns per level are allowed (e.g., `--namespace "A" --namespace "B"`).
 - **`method_stats` still hooks ELT3.** The overhead is in output size, not execution speed — the profiler hooks every enter/leave regardless and aggregates in-process. Discovery sessions produce far fewer NDJSON lines but the profiled app runs at roughly the same speed.
-- **Two output files with `dotnet run`.** When profiling via `dotnet run`, the .NET host process and the actual app are separate processes — you'll get two NDJSON files (one per PID). The host process file is usually tiny; use the larger file for analysis.
+- **Multiple output files with `dotnet run`/`dotnet test`.** When profiling via `dotnet run` or `dotnet test`, the .NET host process and the actual app/testhost are separate processes — you'll get multiple NDJSON files (one per PID). The host process file is usually tiny; use the larger file for analysis. The `run` command resolves output paths to absolute so all files land in the same directory.
 - **Shell state doesn't persist between Bash tool calls.** Always set env vars inline or use `generate-env --format shell` to create `env.sh` and source it in the same command (see Strategy A).
 - **`COR_PRF_ENABLE_FRAME_INFO`** is already set by the DLL in its event mask — no user action needed.
 - **Large traces blow up context.** Always set `max-events` for per-call tracing sessions (50k for perf, 100k for debugging). Never read an entire large NDJSON file — use grep/python to extract relevant events.
