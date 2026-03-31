@@ -115,11 +115,16 @@ jobs:
 
       - name: Commit and tag
         run: |
+          VERSION="v${{ needs.version.outputs.semver }}"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add .claude-plugin/plugin.json CHANGELOG.md
-          git commit -m "chore: release v${{ needs.version.outputs.semver }}" || exit 0
-          git tag "v${{ needs.version.outputs.semver }}"
+          git commit -m "chore: release $VERSION" || exit 0
+          if git rev-parse "$VERSION" >/dev/null 2>&1; then
+            echo "Tag $VERSION already exists, skipping"
+          else
+            git tag "$VERSION"
+          fi
           git push origin main --tags
 
   update-marketplace:
