@@ -10,6 +10,7 @@ Metreja writes **Newline-Delimited JSON** — one event per line. The first even
 | Per-call | `enter`, `leave`, `exception` | Real-time, one per method call/exit/throw | Count against cap |
 | Aggregated | `method_stats`, `exception_stats` | At profiler shutdown | Bypass |
 | Memory | `gc_start`, `gc_end` | Real-time, on GC events | Bypass |
+| Memory | `gc_heap_stats` | Real-time, via EventPipe after each GC (.NET 5+) | Bypass |
 | Memory | `alloc_by_class` | Real-time, per-type allocation | Count against cap |
 | Contention | `contention_start`, `contention_end` | Real-time, via EventPipe (.NET 5+) | Count against cap |
 
@@ -164,9 +165,37 @@ Emitted when the corresponding event type is enabled via `set events`.
 | `pid` | int | Process ID |
 | `sessionId` | string | Session identifier |
 | `durationNs` | long | GC pause duration in nanoseconds |
+| `heapSizeBytes` | long | *(optional)* Total managed heap size after GC (from GetGenerationBounds) |
 
 ```json
-{"event":"gc_end","tsNs":123556789,"pid":1234,"sessionId":"a1b2c3","durationNs":1500000}
+{"event":"gc_end","tsNs":123556789,"pid":1234,"sessionId":"a1b2c3","durationNs":1500000,"heapSizeBytes":4194304}
+```
+
+### `gc_heap_stats` (per-generation heap statistics)
+
+Emitted via EventPipe after each GC when `gc_heap_stats` event type is enabled. Requires .NET 5+ runtime. Uses `COR_PRF_HIGH_BASIC_GC` to avoid disabling concurrent GC.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `event` | string | Always `"gc_heap_stats"` |
+| `tsNs` | long | Timestamp in nanoseconds |
+| `pid` | int | Process ID |
+| `sessionId` | string | Session identifier |
+| `gen0SizeBytes` | long | Generation 0 heap size |
+| `gen0PromotedBytes` | long | Bytes promoted from Gen 0 |
+| `gen1SizeBytes` | long | Generation 1 heap size |
+| `gen1PromotedBytes` | long | Bytes promoted from Gen 1 |
+| `gen2SizeBytes` | long | Generation 2 heap size |
+| `gen2PromotedBytes` | long | Bytes promoted from Gen 2 |
+| `lohSizeBytes` | long | Large Object Heap size |
+| `lohPromotedBytes` | long | Bytes promoted in LOH |
+| `pohSizeBytes` | long | Pinned Object Heap size (V2, .NET 5+; 0 on older runtimes) |
+| `pohPromotedBytes` | long | Bytes promoted in POH |
+| `finalizationQueueLength` | long | Number of objects pending finalization |
+| `pinnedObjectCount` | int | Number of pinned objects |
+
+```json
+{"event":"gc_heap_stats","tsNs":123556800,"pid":1234,"sessionId":"a1b2c3","gen0SizeBytes":24,"gen0PromotedBytes":317384,"gen1SizeBytes":321080,"gen1PromotedBytes":0,"gen2SizeBytes":24,"gen2PromotedBytes":0,"lohSizeBytes":24,"lohPromotedBytes":24,"pohSizeBytes":8208,"pohPromotedBytes":0,"finalizationQueueLength":14,"pinnedObjectCount":1}
 ```
 
 ### `alloc_by_class` (per-type allocation summary)

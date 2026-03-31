@@ -56,7 +56,7 @@ dotnet tool install -g Metreja.Tool
 |----------|-------------|-------------|--------------------|
 | Aggregated | `method_stats`, `exception_stats` | In-profiler summaries emitted periodically and at shutdown | Bypass maxEvents cap |
 | Per-call | `enter`, `leave`, `exception` | One event per method call/exit/throw | Count against maxEvents |
-| Memory | `gc_start`, `gc_end`, `alloc_by_class` | GC and allocation tracking | `gc_*` bypass cap; `alloc_by_class` counts |
+| Memory | `gc_start`, `gc_end`, `gc_heap_stats`, `alloc_by_class` | GC and allocation tracking | `gc_*` bypass cap; `alloc_by_class` counts |
 
 **Two-phase approach:** Start with `method_stats` for lightweight discovery (low output, same ELT3 hooks), then use `enter`/`leave` for targeted tracing on identified hotspots.
 
@@ -68,7 +68,7 @@ dotnet tool install -g Metreja.Tool
 | Focused method perf | `--class "ClassName"` | `System.*`, `Microsoft.*` | `enter leave exception` | 50000 |
 | Debug specific flow | `--namespace "Ns"` | (none) | `enter leave exception` | 100000 |
 | Debug exception | `--assembly "AppName"` | (none) | `enter leave exception exception_stats` | 100000 |
-| Memory / GC analysis | `--assembly "AppName"` | `System.*`, `Microsoft.*` | `gc_start gc_end alloc_by_class` | 50000 |
+| Memory / GC analysis | `--assembly "AppName"` | `System.*`, `Microsoft.*` | `gc_start gc_end gc_heap_stats alloc_by_class` | 50000 |
 
 **Filter patterns** support `*` as a trailing or leading wildcard:
    - `System.*` matches `System.IO`, `System.Linq`, etc.
@@ -320,10 +320,11 @@ metreja memory trace.ndjson --filter "System.String" --filter "MyApp.Models"
 ```
 
 The memory command shows:
-- **GC Summary**: total GC count by generation (gen0/1/2), total/avg/max pause time
+- **GC Summary**: total GC count by generation (gen0/1/2), total/avg/max pause time, peak/last heap size
+- **Heap Breakdown** *(when `gc_heap_stats` enabled)*: per-generation heap sizes and promoted bytes, finalization queue length, pinned object count
 - **Allocation Hotspots**: per-class allocation counts sorted by count descending
 
-Use this to identify: frequent gen2 collections (memory pressure), high allocation rates for specific types, and correlate GC pauses with call-path timing.
+Use this to identify: frequent gen2 collections (memory pressure), high allocation rates for specific types, heap growth trends, promotion pressure, and correlate GC pauses with call-path timing. The `gc_heap_stats` event uses `COR_PRF_HIGH_BASIC_GC` + EventPipe, which does **not** disable concurrent GC — profiled GC behavior matches production.
 
 ### Step 5: Iterative drill-down with new profiling sessions
 
@@ -402,7 +403,7 @@ metreja exceptions trace.ndjson --top 10
 | `set compute-deltas` | `metreja set compute-deltas -s ID true\|false` | Enable/disable delta timing |
 | `set max-events` | `metreja set max-events -s ID N` | Cap event count (0 = unlimited) |
 | `set metadata` | `metreja set metadata -s ID [--scenario S]` | Update scenario |
-| `set events` | `metreja set events -s ID TYPE [TYPE2...]` | Set enabled event types (`enter`, `leave`, `exception`, `method_stats`, `exception_stats`, `gc_start`, `gc_end`, `alloc_by_class`, `contention_start`, `contention_end`) |
+| `set events` | `metreja set events -s ID TYPE [TYPE2...]` | Set enabled event types (`enter`, `leave`, `exception`, `method_stats`, `exception_stats`, `gc_start`, `gc_end`, `gc_heap_stats`, `alloc_by_class`, `contention_start`, `contention_end`) |
 | `set stats-flush-interval` | `metreja set stats-flush-interval -s ID SECONDS` | Periodic stats flush interval (default 30s, 0 = disabled). Protects against data loss on force-kill. |
 | `validate` | `metreja validate -s ID` | Validate session config |
 | `generate-env` | `metreja generate-env -s ID [--dll-path P] [--format batch\|powershell\|shell]` | Generate env var script (DLL path auto-detected) |
@@ -454,7 +455,7 @@ Debug output covers: CLI lifecycle, telemetry initialization, session config det
 ## Common Pitfalls
 
 - **Start with discovery, not per-call tracing.** Use `method_stats` events first to identify hotspot areas with minimal output. Only switch to `enter`/`leave` events for targeted tracing after you know where to look.
-- **Stats events bypass maxEvents.** `method_stats` and `exception_stats` are not subject to the `maxEvents` cap — they are emitted both periodically (per `statsFlushIntervalSeconds`, default 30s) and at final profiler shutdown. `gc_start`/`gc_end` also bypass the cap. Only `enter`, `leave`, `exception`, and `alloc_by_class` count against it.
+- **Stats events bypass maxEvents.** `method_stats` and `exception_stats` are not subject to the `maxEvents` cap — they are emitted both periodically (per `statsFlushIntervalSeconds`, default 30s) and at final profiler shutdown. `gc_start`/`gc_end`/`gc_heap_stats` also bypass the cap. Only `enter`, `leave`, `exception`, `alloc_by_class`, `contention_start`, and `contention_end` count against it.
 - **Periodic stats flush protects against force-kill data loss.** By default (`statsFlushIntervalSeconds: 30`), the profiler periodically writes delta `method_stats`/`exception_stats` events to disk. If the profiled process is force-killed, you retain stats up to the last flush. Set to `0` to disable. For long-running processes or processes that may be killed, the default is recommended. The C# consumers (`hotspots`, `analyze-diff`) automatically sum multiple delta stats events.
 - **Manual flush requires PID and stats events.** `metreja flush --pid PID` only works when the profiled process has `method_stats` or `exception_stats` events enabled. The PID can be obtained from the output filename (when the `{pid}` token is used) or via the OS process listing. The flush uses a named Windows event (`MetrejaFlush_{pid}`) or a POSIX named semaphore (`/MetrejaFlush_{pid}`) on macOS for inter-process signaling.
 - **One filter level per command.** Each `add include`/`add exclude` command accepts only one of `--assembly`, `--namespace`, `--class`, or `--method`. To filter at multiple levels, use separate commands. Multiple patterns per level are allowed (e.g., `--namespace "A" --namespace "B"`).
