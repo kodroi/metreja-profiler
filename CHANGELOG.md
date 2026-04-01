@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## [1.0.4] - 2026-04-01
+
 ### Added
 - Document `set disable-inlining` command (JIT inlining control, default: enabled)
 - Document `set disable-optimizations` command (JIT optimization control, default: enabled)
