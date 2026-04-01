@@ -405,6 +405,8 @@ metreja exceptions trace.ndjson --top 10
 | `set metadata` | `metreja set metadata -s ID [--scenario S]` | Update scenario |
 | `set events` | `metreja set events -s ID TYPE [TYPE2...]` | Set enabled event types (`enter`, `leave`, `exception`, `method_stats`, `exception_stats`, `gc_start`, `gc_end`, `gc_heap_stats`, `alloc_by_class`, `contention_start`, `contention_end`) |
 | `set stats-flush-interval` | `metreja set stats-flush-interval -s ID SECONDS` | Periodic stats flush interval (default 30s, 0 = disabled). Protects against data loss on force-kill. |
+| `set disable-inlining` | `metreja set disable-inlining -s ID true\|false` | Control JIT inlining (default: false/enabled). Set true for complete method tracing |
+| `set disable-optimizations` | `metreja set disable-optimizations -s ID true\|false` | Control JIT optimizations (default: false/enabled). Set true for debug-level tracing |
 | `validate` | `metreja validate -s ID` | Validate session config |
 | `generate-env` | `metreja generate-env -s ID [--dll-path P] [--format batch\|powershell\|shell]` | Generate env var script (DLL path auto-detected) |
 | `run` | `metreja run -s ID [--detach] -- EXE [ARGS...]` | Launch executable with profiler attached |
