@@ -97,6 +97,8 @@ The skill guides Claude through five phases:
 | `metreja add include/exclude` | Add method filters (assembly, namespace, class, method) |
 | `metreja set output` | Set trace output path (supports `{sessionId}`, `{pid}` tokens) |
 | `metreja set compute-deltas` | Enable delta timing for performance analysis |
+| `metreja set disable-inlining` | Control JIT inlining (default: enabled for realistic profiling) |
+| `metreja set disable-optimizations` | Control JIT optimizations (default: enabled) |
 | `metreja set track-memory` | Enable GC and allocation tracking |
 | `metreja validate` | Validate session config before profiling |
 | `metreja generate-env` | Generate environment variable script (batch or PowerShell) |
