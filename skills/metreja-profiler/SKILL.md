@@ -412,7 +412,7 @@ metreja exceptions trace.ndjson --top 10
 | `set disable-optimizations` | `metreja set disable-optimizations -s ID true\|false` | Control JIT optimizations (default: false/enabled). Set true for debug-level tracing |
 | `validate` | `metreja validate -s ID` | Validate session config |
 | `generate-env` | `metreja generate-env -s ID [--dll-path P] [--format batch\|powershell\|shell]` | Generate env var script (DLL path auto-detected) |
-| `run` | `metreja run -s ID [--detach] -- EXE [ARGS...]` | Launch executable with profiler attached; auto-merges multi-PID output files on exit |
+| `run` | `metreja run -s ID [--detach] -- EXE [ARGS...]` | Launch executable with profiler attached; auto-merges multi-PID output files on exit (skipped with `--detach`) |
 | `analyze-diff` | `metreja analyze-diff BASE COMPARE [--top N] [--sort inclusive\|self\|calls\|percent] [--filter PAT]... [--format text\|json]` | Compare two NDJSON traces with multi-metric percentage changes |
 | `hotspots` | `metreja hotspots FILE [--top N] [--min-ms N] [--sort self\|inclusive\|calls\|allocs] [--filter PAT]... [--format text\|json]` | Per-method timing hotspots with self-time and allocs |
 | `calltree` | `metreja calltree FILE --method PAT [--tid N] [--occurrence N] [--format text\|json]` | Call tree for a specific method invocation |
