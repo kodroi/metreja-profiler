@@ -13,6 +13,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Document `set disable-inlining` command (JIT inlining control, default: enabled)
 - Document `set disable-optimizations` command (JIT optimization control, default: enabled)
 
+### Changed
+- Document `run` command auto-merge behavior (merges multi-PID output files on exit)
+- Update `analyze-diff` with `--top`, `--sort`, `--filter` options and multi-metric percentage output
+- Rewrite multi-output-files pitfall to reflect auto-merge
+
 ## [1.0.3] - 2026-03-31
 
 ## [1.0.2] - 2026-03-31
