@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed
+- Document `run` command auto-merge behavior (merges multi-PID output files on exit)
+- Update `analyze-diff` with `--top`, `--sort`, `--filter` options and multi-metric percentage output
+- Rewrite multi-output-files pitfall to reflect auto-merge
+
 ## [1.0.4] - 2026-04-01
 
 ### Added

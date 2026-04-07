@@ -356,9 +356,11 @@ metreja exceptions trace.ndjson --top 10
 
 2. **Before/after comparison** (optional, if user optimizes and re-profiles):
    ```bash
-   metreja analyze-diff base-trace.ndjson optimized-trace.ndjson
+   metreja analyze-diff base-trace.ndjson optimized-trace.ndjson --top 20
+   metreja analyze-diff base-trace.ndjson optimized-trace.ndjson --top 20 --sort self
+   metreja analyze-diff base-trace.ndjson optimized-trace.ndjson --sort calls --filter "MyApp.Services"
    ```
-   This outputs a table comparing total self-time per method between the two runs, sorted by largest delta. Works with both `leave` events (per-call traces) and `method_stats` events (discovery sessions).
+   Shows multi-metric percentage changes per method: self-time delta/%, inclusive-time delta/%, and call count delta/%. Sorted by `--sort` (inclusive, self, calls, or percent). Works with both `leave` events (per-call traces) and `method_stats` events (discovery sessions). With leave-only data, falls back to simplified inclusive-time comparison.
 
 3. **CI regression gate** (optional, for pipeline integration):
    ```bash
@@ -376,7 +378,8 @@ metreja exceptions trace.ndjson --top 10
    metreja export trace.ndjson --format csv --output hotspots.csv
    ```
 
-5. **Merge multi-process traces** (optional, when profiling `dotnet run` produces two files):
+5. **Merge multi-process traces** (usually automatic):
+   The `run` command auto-merges per-PID output files after the process exits, producing a single timestamp-sorted file and deleting the originals. Manual merge is only needed when using `generate-env` or `--detach`:
    ```bash
    metreja merge trace-pid1.ndjson trace-pid2.ndjson --output merged.ndjson
    ```
@@ -409,8 +412,8 @@ metreja exceptions trace.ndjson --top 10
 | `set disable-optimizations` | `metreja set disable-optimizations -s ID true\|false` | Control JIT optimizations (default: false/enabled). Set true for debug-level tracing |
 | `validate` | `metreja validate -s ID` | Validate session config |
 | `generate-env` | `metreja generate-env -s ID [--dll-path P] [--format batch\|powershell\|shell]` | Generate env var script (DLL path auto-detected) |
-| `run` | `metreja run -s ID [--detach] -- EXE [ARGS...]` | Launch executable with profiler attached |
-| `analyze-diff` | `metreja analyze-diff BASE COMPARE [--format text\|json]` | Compare two NDJSON traces |
+| `run` | `metreja run -s ID [--detach] -- EXE [ARGS...]` | Launch executable with profiler attached; auto-merges multi-PID output files on exit (skipped with `--detach`) |
+| `analyze-diff` | `metreja analyze-diff BASE COMPARE [--top N] [--sort inclusive\|self\|calls\|percent] [--filter PAT]... [--format text\|json]` | Compare two NDJSON traces with multi-metric percentage changes |
 | `hotspots` | `metreja hotspots FILE [--top N] [--min-ms N] [--sort self\|inclusive\|calls\|allocs] [--filter PAT]... [--format text\|json]` | Per-method timing hotspots with self-time and allocs |
 | `calltree` | `metreja calltree FILE --method PAT [--tid N] [--occurrence N] [--format text\|json]` | Call tree for a specific method invocation |
 | `callers` | `metreja callers FILE --method PAT [--top N] [--format text\|json]` | Who calls a specific method, with timing |
@@ -462,7 +465,7 @@ Debug output covers: CLI lifecycle, telemetry initialization, session config det
 - **Manual flush requires PID and stats events.** `metreja flush --pid PID` only works when the profiled process has `method_stats` or `exception_stats` events enabled. The PID can be obtained from the output filename (when the `{pid}` token is used) or via the OS process listing. The flush uses a named Windows event (`MetrejaFlush_{pid}`) or a POSIX named semaphore (`/MetrejaFlush_{pid}`) on macOS for inter-process signaling.
 - **One filter level per command.** Each `add include`/`add exclude` command accepts only one of `--assembly`, `--namespace`, `--class`, or `--method`. To filter at multiple levels, use separate commands. Multiple patterns per level are allowed (e.g., `--namespace "A" --namespace "B"`).
 - **`method_stats` still hooks ELT3.** The overhead is in output size, not execution speed — the profiler hooks every enter/leave regardless and aggregates in-process. Discovery sessions produce far fewer NDJSON lines but the profiled app runs at roughly the same speed.
-- **Multiple output files with `dotnet run`/`dotnet test`.** When profiling via `dotnet run` or `dotnet test`, the .NET host process and the actual app/testhost are separate processes — you'll get multiple NDJSON files (one per PID). The host process file is usually tiny; use the larger file for analysis. The `run` command resolves output paths to absolute so all files land in the same directory.
+- **Multiple output files with `dotnet run`/`dotnet test`.** When profiling via `dotnet run` or `dotnet test`, the .NET host process and the actual app/testhost are separate processes — the profiler writes one file per PID. The `run` command **auto-merges** these into a single timestamp-sorted file on exit and deletes the per-PID originals. If using `generate-env` instead of `run`, merge manually with `metreja merge`.
 - **Shell state doesn't persist between Bash tool calls.** Always set env vars inline or use `generate-env --format shell` to create `env.sh` and source it in the same command (see Strategy A).
 - **`COR_PRF_ENABLE_FRAME_INFO`** is already set by the DLL in its event mask — no user action needed.
 - **Large traces blow up context.** Always set `max-events` for per-call tracing sessions (50k for perf, 100k for debugging). Never read an entire large NDJSON file — use grep/python to extract relevant events.
